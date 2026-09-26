@@ -1,0 +1,135 @@
+# Pipeline local/produção do Resenha.
+#
+# Duas camadas de configuração:
+#   - `.env` (raiz, fora do controle de versão) -> só variáveis usadas pelo
+#     PRÓPRIO docker-compose (senha do mysql/rabbitmq, tags de imagem, args
+#     de build do frontend). Veja `.env.example`.
+#   - `backend/.env` -> config da aplicação Go (SMTP, chaves, etc.), lida
+#     pelos containers `api` e `worker-email` via `env_file`. Veja
+#     `backend/.env.example`.
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: resenha-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-resenha_root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-resenha}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-resenha_root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - resenha-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: resenha-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-resenha}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-resenha_rabbit}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - resenha-network
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit
+    restart: unless-stopped
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+      - "50000-50009:50000-50009/udp"  # Portas RTC para mídia
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+    environment:
+      LIVEKIT_KEYS: "devkey: 7xK9mP2qR4sT8vW3yZ5cF6hJ1nL4oB8aD0"
+    networks:
+      - resenha-network
+
+  # ---- API (Go) ---------------------------------------------------------
+  api:
+    image: ${DOCKERHUB_USERNAME}/resenha-api:${IMAGE_TAG:-latest}
+    container_name: resenha-api
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DB_HOST: mysql
+      RABBIT_URL: amqp://${RABBITMQ_DEFAULT_USER:-resenha}:${RABBITMQ_DEFAULT_PASS:-resenha_rabbit}@rabbitmq:5672/
+      LIVEKIT_URL: wss://resenha.mooo.com/livekit
+      LIVEKIT_PUBLIC_URL: wss://resenha.mooo.com/livekit
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    # ── Volume de uploads persistente: as imagens sobrevivem aos deploys ──
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - resenha-network
+
+  # ---- Worker de e-mail (Go) --------------------------------------------
+  worker-email:
+    image: ${DOCKERHUB_USERNAME:-local}/resenha-worker-email:${IMAGE_TAG:-latest}
+    container_name: resenha-worker-email
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBIT_URL: amqp://${RABBITMQ_DEFAULT_USER:-resenha}:${RABBITMQ_DEFAULT_PASS:-resenha_rabbit}@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - resenha-network
+
+  # ---- Frontend (React + Nginx) ------------------------------------------
+  frontend:
+    image: ${DOCKERHUB_USERNAME:-local}/resenha-frontend:${IMAGE_TAG:-latest}
+    container_name: resenha-frontend
+    restart: unless-stopped
+    environment:
+      - BACKEND_HOST=api
+      - LIVEKIT_HOST=livekit
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - api
+      - livekit
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+      # Nginx serve uploads diretamente do volume (sem passar pela API)
+      - uploads_data:/app/uploads:ro
+    networks:
+      - resenha-network
+
+volumes:
+  mysql_data:
+  rabbitmq_data:
+  uploads_data:
+
+networks:
+  resenha-network:
+    driver: bridge

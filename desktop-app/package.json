@@ -1,0 +1,66 @@
+{
+  "name": "Resenha",
+  "version": "1.0.0",
+  "description": "A desktop application for Resenha, a social media platform.",
+  "main": "main.js",
+  "author": {
+    "name": "LiedsonLB",
+    "email": "SEU_EMAIL_AQUI@exemplo.com"
+  },
+  "homepage": "https://resenha.mooo.com",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "dist:mac": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "br.liedsonlb.resenha",
+    "productName": "Resenha",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "picker.html",
+      "picker-renderer.js",
+      "picker-preload.js",
+      "build/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/resenha.ico",
+      "signtoolOptions": {
+        "certificateFile": "777.pfx",
+        "certificatePassword": ""
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network",
+      "icon": "build/resenha_icon.png"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/resenha_icon.icns"
+    }
+  }
+}

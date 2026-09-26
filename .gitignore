@@ -1,0 +1,15 @@
+.env
+.env.*
+**/.env
+**/.env.*
+
+frontend/node_modules
+frontend/dist
+frontend/public
+
+desktop-app/build
+desktop-app/release
+desktop-app/node_modules
+
+*.pfx
+*.p12
