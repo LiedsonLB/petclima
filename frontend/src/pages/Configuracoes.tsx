@@ -24,7 +24,7 @@ export default function Configuracoes() {
         </div>
       </Card>
 
-      <Card title="Sobre o GAT 5">
+      <Card title="Sobre o PET-Saúde Clima">
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           Grupo de Atuação Tutorial responsável por Comunicação, Tecnologias Digitais e Educação
           Permanente dentro do PET-Saúde Clima Piauí, com foco em produção de tecnologias sociais e

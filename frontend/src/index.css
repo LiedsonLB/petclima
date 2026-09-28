@@ -6,7 +6,7 @@
 @tailwind utilities;
 
 :root {
-  /* Cores primárias - GAT 5 · PET-Saúde Clima */
+  /* Cores primárias - PET-Saúde Clima */
   --primary: #004e47;
   --primary-hover: #00685f;
   --primary-light: #e6f3f0;
@@ -237,7 +237,7 @@ button {
 .hero-overlay-bottom {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, #f7faf8, transparent 60%);
+  /* background: linear-gradient(to top, #f7faf8, transparent 60%); */
 }
 
 /* ===== INPUTS ===== */

@@ -11,7 +11,7 @@ export default function Relatorios() {
       <Card>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           Relatório de Alcance de Mídia e Engajamento — consolida indicadores de tráfego, acessos
-          regionais e downloads de materiais por município, previsto para o Semestre 3 do GAT 5.
+          regionais e downloads de materiais por município, previsto para o Semestre 3 do projeto.
         </p>
       </Card>
 

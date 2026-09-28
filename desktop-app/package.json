@@ -1,13 +1,13 @@
 {
-  "name": "Resenha",
+  "name": "PetSaudeClima",
   "version": "1.0.0",
-  "description": "A desktop application for Resenha, a social media platform.",
+  "description": "Aplicativo desktop do PET-Saúde Clima, portal de vigilância territorial em saúde e clima do Piauí.",
   "main": "main.js",
   "author": {
     "name": "LiedsonLB",
     "email": "SEU_EMAIL_AQUI@exemplo.com"
   },
-  "homepage": "https://resenha.mooo.com",
+  "homepage": "https://petsaudeclima.mooo.com",
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
@@ -21,8 +21,8 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "br.liedsonlb.resenha",
-    "productName": "Resenha",
+    "appId": "br.liedsonlb.petsaudeclima",
+    "productName": "PET-Saúde Clima",
     "directories": {
       "output": "release"
     },
@@ -37,7 +37,7 @@
       "target": [
         "portable"
       ],
-      "icon": "build/resenha.ico",
+      "icon": "build/petsaudeclima.ico",
       "signtoolOptions": {
         "certificateFile": "777.pfx",
         "certificatePassword": ""
@@ -54,13 +54,13 @@
         "deb"
       ],
       "category": "Network",
-      "icon": "build/resenha_icon.png"
+      "icon": "build/petsaudeclima_icon.png"
     },
     "mac": {
       "target": [
         "dmg"
       ],
-      "icon": "build/resenha_icon.icns"
+      "icon": "build/petsaudeclima_icon.icns"
     }
   }
 }

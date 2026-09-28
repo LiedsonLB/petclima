@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 
 const routeTitles: Record<string, { title: string; subtitle: string }> = {
-  '/dashboard': { title: 'Dashboard', subtitle: 'Visão geral das entregas do GAT 5' },
+  '/dashboard': { title: 'Dashboard', subtitle: 'Visão geral das entregas do PET-Saúde Clima' },
   '/cronograma': { title: 'Cronograma', subtitle: 'Entregas por semestre, Set/2026 a Ago/2028' },
   '/comunicacao': { title: 'Comunicação', subtitle: 'Plano transversal e kit de comunicação regional' },
   '/formacao': { title: 'Educação Permanente', subtitle: 'Oficinas de letramento em saúde e combate às fake news' },
@@ -17,7 +17,7 @@ const routeTitles: Record<string, { title: string; subtitle: string }> = {
 export default function Topbar() {
   const { theme, toggle } = useTheme();
   const location = useLocation();
-  const { title, subtitle } = routeTitles[location.pathname] ?? { title: 'GAT 5 Comunica', subtitle: '' };
+  const { title, subtitle } = routeTitles[location.pathname] ?? { title: 'PET-Saúde Clima', subtitle: '' };
 
   return (
     <div style={{

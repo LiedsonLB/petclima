@@ -7,14 +7,14 @@ const ThemeContext = createContext<ThemeCtx>({ theme: 'light', toggle: () => {} 
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem('gat5-theme');
+    const saved = localStorage.getItem('petsaudeclima-theme');
     if (saved === 'dark' || saved === 'light') return saved;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('gat5-theme', theme);
+    localStorage.setItem('petsaudeclima-theme', theme);
   }, [theme]);
 
   const toggle = () => setTheme(t => t === 'light' ? 'dark' : 'light');

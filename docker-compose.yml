@@ -1,4 +1,4 @@
-# Pipeline local/produção do Resenha.
+# Pipeline local/produção do PET-Saúde Clima.
 #
 # Duas camadas de configuração:
 #   - `.env` (raiz, fora do controle de versão) -> só variáveis usadas pelo
@@ -11,30 +11,30 @@
 services:
   mysql:
     image: mysql:8.0
-    container_name: resenha-mysql
+    container_name: petsaude-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-resenha_root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-resenha}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-petsaude_root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-petsaude}
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-resenha_root}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-petsaude_root}"]
       interval: 5s
       timeout: 5s
       retries: 20
     networks:
-      - resenha-network
+      - petsaude-network
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: resenha-rabbitmq
+    container_name: petsaude-rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-resenha}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-resenha_rabbit}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-petsaude}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-petsaude_rabbit}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -46,7 +46,7 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - resenha-network
+      - petsaude-network
 
   livekit:
     image: livekit/livekit-server:latest
@@ -63,67 +63,67 @@ services:
     environment:
       LIVEKIT_KEYS: "devkey: 7xK9mP2qR4sT8vW3yZ5cF6hJ1nL4oB8aD0"
     networks:
-      - resenha-network
+      - petsaude-network
 
   # ---- API (Go) ---------------------------------------------------------
-  api:
-    image: ${DOCKERHUB_USERNAME}/resenha-api:${IMAGE_TAG:-latest}
-    container_name: resenha-api
-    restart: unless-stopped
-    env_file:
-      - ./backend/.env
-    environment:
-      DB_HOST: mysql
-      RABBIT_URL: amqp://${RABBITMQ_DEFAULT_USER:-resenha}:${RABBITMQ_DEFAULT_PASS:-resenha_rabbit}@rabbitmq:5672/
-      LIVEKIT_URL: wss://resenha.mooo.com/livekit
-      LIVEKIT_PUBLIC_URL: wss://resenha.mooo.com/livekit
-    depends_on:
-      mysql:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    # ── Volume de uploads persistente: as imagens sobrevivem aos deploys ──
-    volumes:
-      - uploads_data:/app/uploads
-    networks:
-      - resenha-network
+  # api:
+  #   image: ${DOCKERHUB_USERNAME}/petsaude-api:${IMAGE_TAG:-latest}
+  #   container_name: petsaude-api
+  #   restart: unless-stopped
+  #   env_file:
+  #     - ./backend/.env
+  #   environment:
+  #     DB_HOST: mysql
+  #     RABBIT_URL: amqp://${RABBITMQ_DEFAULT_USER:-petsaude}:${RABBITMQ_DEFAULT_PASS:-petsaude_rabbit}@rabbitmq:5672/
+  #     LIVEKIT_URL: wss://petsaudeclima.mooo.com/livekit
+  #     LIVEKIT_PUBLIC_URL: wss://petsaudeclima.mooo.com/livekit
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
+  #   # ── Volume de uploads persistente: as imagens sobrevivem aos deploys ──
+  #   volumes:
+  #     - uploads_data:/app/uploads
+  #   networks:
+  #     - petsaude-network
 
   # ---- Worker de e-mail (Go) --------------------------------------------
-  worker-email:
-    image: ${DOCKERHUB_USERNAME:-local}/resenha-worker-email:${IMAGE_TAG:-latest}
-    container_name: resenha-worker-email
-    restart: unless-stopped
-    env_file:
-      - ./backend/.env
-    environment:
-      RABBIT_URL: amqp://${RABBITMQ_DEFAULT_USER:-resenha}:${RABBITMQ_DEFAULT_PASS:-resenha_rabbit}@rabbitmq:5672/
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - resenha-network
+  # worker-email:
+  #   image: ${DOCKERHUB_USERNAME:-local}/petsaude-worker-email:${IMAGE_TAG:-latest}
+  #   container_name: petsaude-worker-email
+  #   restart: unless-stopped
+  #   env_file:
+  #     - ./backend/.env
+  #   environment:
+  #     RABBIT_URL: amqp://${RABBITMQ_DEFAULT_USER:-petsaude}:${RABBITMQ_DEFAULT_PASS:-petsaude_rabbit}@rabbitmq:5672/
+  #   depends_on:
+  #     rabbitmq:
+  #       condition: service_healthy
+  #   networks:
+  #     - petsaude-network
 
   # ---- Frontend (React + Nginx) ------------------------------------------
-  frontend:
-    image: ${DOCKERHUB_USERNAME:-local}/resenha-frontend:${IMAGE_TAG:-latest}
-    container_name: resenha-frontend
-    restart: unless-stopped
-    environment:
-      - BACKEND_HOST=api
-      - LIVEKIT_HOST=livekit
-    ports:
-      - "80:80"
-      - "443:443"
-    depends_on:
-      - api
-      - livekit
-    volumes:
-      - ./certbot/www:/var/www/certbot
-      - ./certbot/conf:/etc/letsencrypt
-      # Nginx serve uploads diretamente do volume (sem passar pela API)
-      - uploads_data:/app/uploads:ro
-    networks:
-      - resenha-network
+  # frontend:
+  #   image: ${DOCKERHUB_USERNAME:-local}/petsaude-frontend:${IMAGE_TAG:-latest}
+  #   container_name: petsaude-frontend
+  #   restart: unless-stopped
+  #   environment:
+  #     - BACKEND_HOST=api
+  #     - LIVEKIT_HOST=livekit
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   depends_on:
+  #     - api
+  #     - livekit
+  #   volumes:
+  #     - ./certbot/www:/var/www/certbot
+  #     - ./certbot/conf:/etc/letsencrypt
+  #     # Nginx serve uploads diretamente do volume (sem passar pela API)
+  #     - uploads_data:/app/uploads:ro
+  #   networks:
+  #     - petsaude-network
 
 volumes:
   mysql_data:
@@ -131,5 +131,5 @@ volumes:
   uploads_data:
 
 networks:
-  resenha-network:
+  petsaude-network:
     driver: bridge

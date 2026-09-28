@@ -2,22 +2,38 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Cloud, Mail, Lock, Eye, EyeOff, ArrowRight,
-  User, Building2, GraduationCap, Users, ClipboardCheck, ChevronDown,
+  User, Building2, GraduationCap, Users, ClipboardCheck, ChevronDown, AlertCircle, MapPinned,
 } from 'lucide-react';
 import LegalModal, { type LegalDoc } from '../components/LegalModal';
+import { useAuth } from '../contexts/AuthContext';
+import { ApiError } from '../lib/api';
+
+// Mapeia o perfil escolhido no formulário para o valor numérico aceito pelo
+// backend (models.PerfilEstudante/PerfilProfissional/PerfilGestor — ver
+// models.PerfisAutoCadastro em usuario.go). "Comunidade" entra como usuário
+// comum (Estudante), sem privilégios adicionais.
+const PERFIL_MAP: Record<string, number> = {
+  pesquisador: 3, // PerfilProfissional
+  estudante: 2,   // PerfilEstudante
+  gestor: 4,      // PerfilGestor
+  comunidade: 2,  // PerfilEstudante (usuário cadastrado comum)
+};
 
 export default function Cadastro() {
   const navigate = useNavigate();
+  const { cadastrar } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [erro, setErro] = useState('');
+  const [sucesso, setSucesso] = useState(false);
   const [legalOpen, setLegalOpen] = useState<LegalDoc | null>(null);
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
     instituicao: '',
+    municipio: '',
     curso: '',
     perfil: '',
     senha: '',
@@ -29,7 +45,7 @@ export default function Cadastro() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErro('');
     if (!acceptTerms) {
@@ -41,10 +57,27 @@ export default function Cadastro() {
       return;
     }
     setIsLoading(true);
-    setTimeout(() => {
+    try {
+      await cadastrar({
+        nome: formData.nome,
+        email: formData.email,
+        senha: formData.senha,
+        instituicao: formData.instituicao,
+        municipio: formData.municipio,
+        profissao: formData.curso,
+        perfil: PERFIL_MAP[formData.perfil] ?? 2,
+      });
+      setSucesso(true);
+      setTimeout(() => navigate('/login'), 2500);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setErro(err.message);
+      } else {
+        setErro('Não foi possível conectar ao servidor. Tente novamente.');
+      }
+    } finally {
       setIsLoading(false);
-      navigate('/login');
-    }, 1500);
+    }
   };
 
   return (
@@ -61,8 +94,14 @@ export default function Cadastro() {
 
         <div className="auth-hero-content">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/20">
-              <Cloud size={28} className="text-white" />
+            <div className="">
+              <div className="flex items-center justify-center gap-1">
+                <img
+                  src="petsaudeclima_icon.png"
+                  alt="PET-Saúde Clima Logo"
+                  className="h-10 w-auto"
+                />
+              </div>
             </div>
             <div>
               <div className="text-[22px] font-bold text-white tracking-tight">PET-Saúde Clima</div>
@@ -83,12 +122,12 @@ export default function Cadastro() {
         <div className="auth-hero-content flex gap-8">
           <div>
             <div className="text-[24px] font-bold text-primary">224</div>
-            <div className="text-[12px] text-primary/70">Municípios Monitorados</div>
+            <div className="text-[12px] text-white">Municípios Monitorados</div>
           </div>
           <div className="auth-stats-divider" />
           <div>
             <div className="text-[24px] font-bold text-primary">15+</div>
-            <div className="text-[12px] text-primary/70">Instituições Parceiras</div>
+            <div className="text-[12px] text-white">Instituições Parceiras</div>
           </div>
         </div>
       </section>
@@ -98,7 +137,13 @@ export default function Cadastro() {
         <div className="w-full max-w-lg">
           <div className="flex items-center gap-2 mb-6 lg:hidden">
             <div className="w-9 h-9 rounded-xl bg-[#004e47]/10 flex items-center justify-center">
-              <Cloud size={24} className="text-[#004e47]" />
+              <div className="flex items-center justify-center gap-1 mb-2">
+                <img
+                  src="petsaudeclima_icon.png"
+                  alt="PET-Saúde Clima Logo"
+                  className="h-10 w-auto"
+                />
+              </div>
             </div>
             <div>
               <div className="text-[18px] font-bold text-[#004e47]">PET-Saúde Clima</div>
@@ -168,19 +213,35 @@ export default function Cadastro() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-[#3e4947] mb-1.5">Curso</label>
+                <label className="block text-xs font-semibold text-[#3e4947] mb-1.5">Município</label>
                 <div className="relative">
-                  <GraduationCap size={18} className="text-[#3e4947]/60 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <MapPinned size={18} className="text-[#3e4947]/60 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    name="curso"
+                    name="municipio"
                     type="text"
                     required
-                    placeholder="Ex: Medicina, Geografia..."
-                    value={formData.curso}
+                    placeholder="Ex: Teresina, Parnaíba..."
+                    value={formData.municipio}
                     onChange={handleChange}
                     className="auth-input w-full pl-10"
                   />
                 </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#3e4947] mb-1.5">Curso / Vínculo</label>
+              <div className="relative">
+                <GraduationCap size={18} className="text-[#3e4947]/60 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  name="curso"
+                  type="text"
+                  required
+                  placeholder="Ex: Medicina, Enfermagem, ACS..."
+                  value={formData.curso}
+                  onChange={handleChange}
+                  className="auth-input w-full pl-10"
+                />
               </div>
             </div>
 
@@ -273,14 +334,21 @@ export default function Cadastro() {
             </label>
 
             {erro && (
-              <div className="text-xs px-3 py-2.5 rounded-lg" style={{ background: 'var(--danger-bg)', color: 'var(--danger-text)' }}>
+              <div className="flex items-center gap-2 text-xs px-3 py-2.5 rounded-lg" style={{ background: 'var(--danger-bg)', color: 'var(--danger-text)' }}>
+                <AlertCircle size={14} className="shrink-0" />
                 {erro}
+              </div>
+            )}
+
+            {sucesso && (
+              <div className="text-xs px-3 py-2.5 rounded-lg" style={{ background: 'var(--success-bg)', color: 'var(--success-text)' }}>
+                Cadastro realizado! Enviamos um e-mail de confirmação — verifique sua caixa de entrada antes de entrar.
               </div>
             )}
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || sucesso}
               className="btn-primary w-full flex items-center justify-center gap-2 text-[15px]"
             >
               {isLoading ? (

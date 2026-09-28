@@ -76,7 +76,7 @@ function createWindow() {
     icon: path.join(
       __dirname,
       "build",
-      "resenha_icon.png"
+      "petsaudeclima_icon.png"
     ),
 
     autoHideMenuBar: true,

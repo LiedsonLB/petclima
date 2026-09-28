@@ -45,7 +45,7 @@ export default function Cronograma() {
 
       <Card title="Suporte do Orientador de Serviço 3">
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          O GAT 5 conta com o apoio do Orientador de Serviço 3, responsável por dar suporte às
+          O PET-Saúde Clima conta com o apoio do Orientador de Serviço 3, responsável por dar suporte às
           metodologias de Educação Permanente, validar as tecnologias de informação e comunicação
           em saúde e acompanhar as ações de telessaúde ao longo das quatro etapas do cronograma.
         </p>

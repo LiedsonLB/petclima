@@ -2,6 +2,7 @@ import { CalendarDays, Users, ShieldAlert, Plus } from 'lucide-react';
 import Card from '../components/Card';
 import KpiCard from '../components/KpiCard';
 import ProgressBar from '../components/ProgressBar';
+import SalasAoVivo from '../components/SalasAoVivo';
 import { oficinas } from '../data/Data';
 
 export default function Formacao() {
@@ -28,6 +29,8 @@ export default function Formacao() {
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Progresso rumo à meta de 200 profissionais capacitados</div>
         <ProgressBar value={inscritos} max={200} />
       </Card>
+
+      <SalasAoVivo />
 
       <Card
         title="Oficinas programadas"

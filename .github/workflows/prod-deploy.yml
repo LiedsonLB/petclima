@@ -1,8 +1,8 @@
-name: Deploy Resenha
+name: Deploy PET-Saúde Clima
 
 on:
   push:
-    branches: [ RESENHA-3 ]
+    branches: [ PETSAUDE-3 ]
 
 jobs:
 
@@ -33,8 +33,8 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/resenha-api:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/resenha-api:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-api:${{ github.sha }}
 
       # ---- Worker de e-mail -------------------------------------------
       - name: Build & push worker-email
@@ -46,8 +46,8 @@ jobs:
           cache-from: type=gha,scope=worker-email
           cache-to: type=gha,mode=max,scope=worker-email
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/resenha-worker-email:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/resenha-worker-email:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-worker-email:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-worker-email:${{ github.sha }}
 
       # ---- Frontend -----------------------------------------------------
       - name: Build & push Frontend
@@ -61,10 +61,10 @@ jobs:
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
             VITE_APP_KEY=${{ secrets.VITE_APP_KEY }}
-            VITE_LIVEKIT_URL=wss://resenha.mooo.com/livekit
+            VITE_LIVEKIT_URL=wss://petsaudeclima.mooo.com/livekit
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/resenha-frontend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/resenha-frontend:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-frontend:${{ github.sha }}
 
 # ==========================================================================
 # DEPLOY NO SERVIDOR (self-hosted runner)
@@ -90,7 +90,7 @@ jobs:
       - name: Gerar backend/.env
         run: |
           cat > backend/.env <<EOF
-          APP_NAME=Resenha
+          APP_NAME=PET-Saúde Clima
           PORT=8080
           TOKEN_KEY=${{ secrets.TOKEN_KEY }}
           APP_KEY=${{ secrets.APP_KEY }}
@@ -112,13 +112,13 @@ jobs:
           MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
           MAIL_ENCRYPTION=tls
           MAIL_FROM_ADDRESS=${{ secrets.MAIL_FROM_ADDRESS }}
-          MAIL_FROM_NAME="Resenha"
+          MAIL_FROM_NAME="PET-Saúde Clima"
           VERIFICATION_SECRET=${{ secrets.VERIFICATION_SECRET }}
 
           LIVEKIT_API_KEY=${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET=${{ secrets.LIVEKIT_API_SECRET }}
-          LIVEKIT_URL=wss://resenha.mooo.com/livekit
-          LIVEKIT_PUBLIC_URL=wss://resenha.mooo.com/livekit
+          LIVEKIT_URL=wss://petsaudeclima.mooo.com/livekit
+          LIVEKIT_PUBLIC_URL=wss://petsaudeclima.mooo.com/livekit
 
           UPLOAD_DIR=/app/uploads
           EOF

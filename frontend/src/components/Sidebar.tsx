@@ -1,8 +1,9 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Megaphone, GraduationCap, BookOpenCheck,
-  MapPinned, FileBarChart, Archive, CalendarClock, Settings,
+  MapPinned, FileBarChart, Archive, CalendarClock, Settings, LogOut,
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const navPrincipal = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -55,6 +56,14 @@ function NavGroup({ label, items }: { label: string; items: typeof navPrincipal 
 }
 
 export default function Sidebar() {
+  const { usuario, sair } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSair = () => {
+    sair();
+    navigate('/login');
+  };
+
   return (
     <div style={{
       width: 'var(--sidebar-width, 228px)',
@@ -84,10 +93,40 @@ export default function Sidebar() {
       </div>
 
       <div style={{ padding: '10px', borderTop: '1px solid var(--border)' }}>
+        {usuario && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', background: 'var(--primary-light)',
+              color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 700, flexShrink: 0, overflow: 'hidden',
+            }}>
+              {usuario.foto ? (
+                <img src={usuario.foto} alt={usuario.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                usuario.nome.charAt(0).toUpperCase()
+              )}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {usuario.nome}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                {usuario.perfil_label ?? 'Usuário'}
+              </div>
+            </div>
+          </div>
+        )}
         <NavLink to="/configuracoes" style={({ isActive }) => itemStyle(isActive)}>
           <Settings size={17} />
           <span>Configurações</span>
         </NavLink>
+        <button
+          onClick={handleSair}
+          style={{ ...itemStyle(false), width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+        >
+          <LogOut size={17} />
+          <span>Sair</span>
+        </button>
       </div>
     </div>
   );

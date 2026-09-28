@@ -2,26 +2,39 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Cloud, Mail, Lock, Eye, EyeOff, ArrowRight,
-  Thermometer, ClipboardCheck,
+  Thermometer, ClipboardCheck, AlertCircle,
 } from 'lucide-react';
 import LegalModal, { type LegalDoc } from '../components/LegalModal';
+import { useAuth } from '../contexts/AuthContext';
+import { ApiError } from '../lib/api';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { entrar } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [erro, setErro] = useState('');
   const [legalOpen, setLegalOpen] = useState<LegalDoc | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErro('');
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      await entrar(email, password, remember);
       navigate('/dashboard');
-    }, 1500);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setErro(err.status === 401 ? 'E-mail ou senha inválidos.' : err.message);
+      } else {
+        setErro('Não foi possível conectar ao servidor. Tente novamente.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const togglePassword = () => setShowPassword((v) => !v);
@@ -43,9 +56,15 @@ export default function Login() {
         {/* Left Side: Cinematic Narrative & Branding */}
         <section className="w-full lg:w-1/2 flex flex-col justify-center items-start pt-12 lg:pt-0">
           <div className="max-w-xl">
-            <div className="flex items-center gap-2 mb-6">
-              <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20">
-                <Cloud size={32} className="text-[#a1f1e5]" />
+            <div className="flex items-center gap-4 mb-6">
+              <div className="">
+                <div className="flex items-center justify-center gap-1">
+                  <img
+                    src="petsaudeclima_icon.png"
+                    alt="PET-Saúde Clima Logo"
+                    className="h-16 w-auto"
+                  />
+                </div>
               </div>
               <h1 className="text-[48px] font-bold text-white tracking-tight drop-shadow-lg">PET-Saúde Clima</h1>
             </div>
@@ -165,6 +184,13 @@ export default function Login() {
                   </>
                 )}
               </button>
+
+              {erro && (
+                <div className="flex items-center gap-2 text-xs px-3 py-2.5 rounded-lg" style={{ background: 'var(--danger-bg)', color: 'var(--danger-text)' }}>
+                  <AlertCircle size={14} className="shrink-0" />
+                  {erro}
+                </div>
+              )}
             </form>
 
             <p className="text-center text-sm text-[#3e4947] pt-2">
@@ -174,7 +200,7 @@ export default function Login() {
               </Link>
             </p>
 
-            <p className="text-center text-xs text-[#9aaba7]">
+            <p className="text-center text-xs text-[#3e4947]">
               Ao continuar, você concorda com os{' '}
               <button type="button" onClick={() => setLegalOpen('termos')} className="underline hover:text-[#004e47]">
                 Termos de Uso

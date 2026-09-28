@@ -28,7 +28,7 @@ const DOWNLOADS = [
     formato: 'Instalador .exe',
     size: '72 MB',
     icon: Monitor,
-    url: `https://github.com/LiedsonLB/petsaude/releases/download/v${VERSAO}/Resenha.${VERSAO}.exe`,
+    url: `https://github.com/LiedsonLB/petsaude/releases/download/v${VERSAO}/PetSaudeClima.${VERSAO}.exe`,
     recomendado: 'windows' as const,
   },
   {
@@ -38,7 +38,7 @@ const DOWNLOADS = [
     formato: 'Pacote .deb (amd64)',
     size: '73 MB',
     icon: HardDriveDownload,
-    url: `https://github.com/LiedsonLB/petsaude/releases/download/v${VERSAO}/Resenha_${VERSAO}_amd64.deb`,
+    url: `https://github.com/LiedsonLB/petsaude/releases/download/v${VERSAO}/PetSaudeClima_${VERSAO}_amd64.deb`,
     recomendado: 'linux' as const,
   },
   {
@@ -48,7 +48,7 @@ const DOWNLOADS = [
     formato: 'AppImage',
     size: '105 MB',
     icon: HardDriveDownload,
-    url: `https://github.com/LiedsonLB/petsaude/releases/download/v${VERSAO}/Resenha-${VERSAO}.AppImage`,
+    url: `https://github.com/LiedsonLB/petsaude/releases/download/v${VERSAO}/PetSaudeClima-${VERSAO}.AppImage`,
     recomendado: 'linux' as const,
   },
 ] as const;
@@ -73,7 +73,7 @@ function ModalDownload({
 }: {
   aberto: boolean;
   onFechar: () => void;
-  plataforma: Plataforma;
+  plataforma: Plataforma | null;
 }) {
   const [baixando, setBaixando] = useState<string | null>(null);
 
@@ -111,7 +111,7 @@ function ModalDownload({
       aria-labelledby="titulo-download"
     >
       <div
-        className="relative w-full max-w-lg overflow-hidden rounded-t-3xl border border-outline-variant/30 bg-surface-container-low shadow-2xl sm:rounded-3xl"
+        className="relative w-full max-w-lg overflow-hidden rounded-t-3xl border border-outline-variant/30 bg-white shadow-2xl sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho */}
@@ -121,7 +121,7 @@ function ModalDownload({
               id="titulo-download"
               className="text-headline-md text-on-surface"
             >
-              Baixar o Resenha
+              Baixar o PET-Saúde Clima
             </h2>
             <p className="mt-1 text-body-md text-on-surface-variant">
               Escolha a versão para o seu sistema. Versão {VERSAO}.
@@ -132,7 +132,7 @@ function ModalDownload({
             type="button"
             onClick={onFechar}
             aria-label="Fechar"
-            className="shrink-0 rounded-full p-2 text-on-surface-variant transition-colors hover:bg-surface-container-highest hover:text-on-surface"
+            className="shrink-0 rounded-full p-2 text-on-surface-variant transition-colors hover:bg-surface-container-highest hover:text-bg-white"
           >
             <X size={20} />
           </button>
@@ -175,7 +175,7 @@ function ModalDownload({
                     </span>
                   </span>
 
-                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-on-primary">
+                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-white">
                     <Download
                       size={18}
                       className={estaBaixando ? 'animate-pulse' : ''}
@@ -302,7 +302,7 @@ export default function Landing() {
             PET-Saúde Clima
           </h1>
           <p style={{ fontSize: 16, color: 'var(--text-white-85)', lineHeight: 1.6, maxWidth: 640, margin: '0 auto 32px' }}>
-            O portal do GAT 5 (Comunicação, Tecnologias Digitais e Educação Permanente) reúne os materiais,
+            O portal do PET-Saúde Clima (Comunicação, Tecnologias Digitais e Educação Permanente) reúne os materiais,
             oficinas e indicadores produzidos para levar comunicação de risco climático às quatro macrorregiões do Piauí.
           </p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -312,7 +312,14 @@ export default function Landing() {
             <button onClick={() => navigate('/login')} style={{ fontSize: 14, padding: '14px 28px', borderRadius: 9999, background: 'transparent', border: '2px solid rgba(255,255,255,0.3)', color: '#fff', cursor: 'pointer' }}>
               Já sou da equipe
             </button>
+            <button
+              onClick={() => setModalAberto(true)}
+              style={{ fontSize: 14, padding: '14px 28px', borderRadius: 9999, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+            >
+              <Download size={16} /> Baixar app desktop
+            </button>
           </div>
+          <p style={{ fontSize: 12, color: 'var(--text-white-70)', marginTop: 14 }}>{textoPlataforma}</p>
         </div>
       </header>
 
@@ -338,7 +345,7 @@ export default function Landing() {
       {/* Pilares */}
       <section id="pilares" style={{ maxWidth: 1180, margin: '0 auto', padding: '96px 20px 40px' }}>
         <div style={{ textAlign: 'center', marginBottom: 48 }}>
-          <h2 style={{ fontSize: 30, fontWeight: 800 }}>O que o GAT 5 entrega</h2>
+          <h2 style={{ fontSize: 30, fontWeight: 800 }}>O que o PET-Saúde Clima entrega</h2>
           <p style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 8 }}>Seis frentes de trabalho, alinhadas ao cronograma oficial do projeto.</p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
@@ -395,7 +402,7 @@ export default function Landing() {
       <section className="hero-gradient" style={{ padding: '90px 20px', textAlign: 'center' }}>
         <div style={{ maxWidth: 640, margin: '0 auto' }}>
           <ShieldCheck size={32} color="var(--primary-fixed)" style={{ marginBottom: 16 }} />
-          <h2 style={{ fontSize: 28, fontWeight: 800, color: '#fff', marginBottom: 14 }}>Faça parte da equipe do GAT 5</h2>
+          <h2 style={{ fontSize: 28, fontWeight: 800, color: '#fff', marginBottom: 14 }}>Faça parte da equipe do PET-Saúde Clima</h2>
           <p style={{ fontSize: 15, color: 'var(--text-white-85)', marginBottom: 28, lineHeight: 1.6 }}>
             Cadastre-se para acompanhar materiais, oficinas e indicadores de comunicação do PET-Saúde Clima Piauí.
           </p>

@@ -1,5 +1,5 @@
 // src/data/Data.ts
-// Dados mockados alinhados ao escopo do GAT 5 — Comunicação, Tecnologias
+// Dados mockados alinhados ao escopo do PET-Saúde Clima — Comunicação, Tecnologias
 // Digitais e Educação Permanente (PET-Saúde Clima Piauí).
 
 export type StatusEtapa = 'concluido' | 'andamento' | 'planejado';
