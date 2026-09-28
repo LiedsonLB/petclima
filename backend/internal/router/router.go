@@ -3,12 +3,12 @@ package router
 import (
 	"net/http"
 
-	"github.com/liedsonlb/resenha-patch/internal/handlers"
-	"github.com/liedsonlb/resenha-patch/internal/mailer"
-	"github.com/liedsonlb/resenha-patch/internal/middleware"
-	"github.com/liedsonlb/resenha-patch/internal/queue"
-	"github.com/liedsonlb/resenha-patch/internal/realtime"
-	"github.com/liedsonlb/resenha-patch/internal/repository"
+	"github.com/liedsonlb/petsaude-clima/internal/handlers"
+	"github.com/liedsonlb/petsaude-clima/internal/mailer"
+	"github.com/liedsonlb/petsaude-clima/internal/middleware"
+	"github.com/liedsonlb/petsaude-clima/internal/queue"
+	"github.com/liedsonlb/petsaude-clima/internal/realtime"
+	"github.com/liedsonlb/petsaude-clima/internal/repository"
 )
 
 type Deps struct {

@@ -8,13 +8,13 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/liedsonlb/resenha-patch/internal/config"
-	"github.com/liedsonlb/resenha-patch/internal/database"
-	"github.com/liedsonlb/resenha-patch/internal/mailer"
-	"github.com/liedsonlb/resenha-patch/internal/queue"
-	"github.com/liedsonlb/resenha-patch/internal/realtime"
-	"github.com/liedsonlb/resenha-patch/internal/repository"
-	"github.com/liedsonlb/resenha-patch/internal/router"
+	"github.com/liedsonlb/petsaude-clima/internal/config"
+	"github.com/liedsonlb/petsaude-clima/internal/database"
+	"github.com/liedsonlb/petsaude-clima/internal/mailer"
+	"github.com/liedsonlb/petsaude-clima/internal/queue"
+	"github.com/liedsonlb/petsaude-clima/internal/realtime"
+	"github.com/liedsonlb/petsaude-clima/internal/repository"
+	"github.com/liedsonlb/petsaude-clima/internal/router"
 )
 
 func main() {

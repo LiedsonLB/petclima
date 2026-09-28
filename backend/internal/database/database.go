@@ -6,7 +6,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/liedsonlb/resenha-patch/internal/config"
+	"github.com/liedsonlb/petsaude-clima/internal/config"
 )
 
 // Connect opens a pooled connection to the exact same MySQL database used

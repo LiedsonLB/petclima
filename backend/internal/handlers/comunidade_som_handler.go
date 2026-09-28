@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/liedsonlb/resenha-patch/internal/httpx"
-	"github.com/liedsonlb/resenha-patch/internal/middleware"
-	"github.com/liedsonlb/resenha-patch/internal/models"
-	"github.com/liedsonlb/resenha-patch/internal/repository"
+	"github.com/liedsonlb/petsaude-clima/internal/httpx"
+	"github.com/liedsonlb/petsaude-clima/internal/middleware"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/repository"
 )
 
 // ComunidadeSomHandler gerencia o soundboard de uma comunidade — os

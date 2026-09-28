@@ -43,7 +43,7 @@ type Sala struct {
 	Categoria *string `json:"categoria" db:"categoria"`
 
 	// Mantido apenas por compatibilidade com o fluxo antigo de "sala de
-	// produção" do WebLEIA; o Resenha não usa mais gênero textual.
+	// produção" do WebLEIA; o PET-Saúde Clima usa para oficinas ao vivo.
 	GeneroTextualID *int64     `json:"genero_textual_id,omitempty" db:"genero_textual_id"`
 	CriadoPor       int64      `json:"criado_por" db:"criado_por"`
 	Ativa           bool       `json:"ativa" db:"ativa"`

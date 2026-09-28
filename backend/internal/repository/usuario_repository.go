@@ -8,8 +8,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/liedsonlb/resenha-patch/internal/apperr"
-	"github.com/liedsonlb/resenha-patch/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/apperr"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
 )
 
 // ListParams mirrors the query-string contract of BaseListRepository::all
@@ -82,11 +82,12 @@ func (r *UsuarioRepository) buildWhere(p ListParams) (string, []any) {
 	return strings.Join(clauses, " AND "), args
 }
 
-const usuarioColumns = "id, nome, email, senha, foto, banner, moldura, descricao, links, jogos, status_customizado, atividade, atividade_tipo, perfil, email_verified_at, created_at, updated_at, deleted_at, aluno_id"
+const usuarioColumns = "id, nome, email, senha, foto, banner, moldura, descricao, instituicao, municipio, profissao, links, jogos, status_customizado, atividade, atividade_tipo, perfil, email_verified_at, created_at, updated_at, deleted_at, aluno_id"
 
 func scanUsuario(row interface{ Scan(...any) error }) (*models.Usuario, error) {
 	u := &models.Usuario{}
 	err := row.Scan(&u.ID, &u.Nome, &u.Email, &u.Senha, &u.Foto, &u.Banner, &u.Moldura, &u.Descricao,
+		&u.Instituicao, &u.Municipio, &u.Profissao,
 		&u.Links, &u.Jogos, &u.StatusCustomizado, &u.Atividade, &u.AtividadeTipo, &u.Perfil,
 		&u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt, &u.AlunoID)
 	if err != nil {
@@ -360,9 +361,9 @@ func (r *UsuarioRepository) Create(u *models.Usuario, plainSenha string) (*model
 	}
 
 	res, err := r.db.Exec(
-		`INSERT INTO usuario (nome, email, senha, foto, perfil, aluno_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-		u.Nome, u.Email, string(hash), u.Foto, u.Perfil, u.AlunoID,
+		`INSERT INTO usuario (nome, email, senha, foto, instituicao, municipio, profissao, perfil, aluno_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+		u.Nome, u.Email, string(hash), u.Foto, u.Instituicao, u.Municipio, u.Profissao, u.Perfil, u.AlunoID,
 	)
 	if err != nil {
 		return nil, err
@@ -483,6 +484,15 @@ func (r *UsuarioRepository) Update(id int64, u *models.Usuario, plainSenha strin
 	if u.Descricao != nil {
 		existing.Descricao = u.Descricao
 	}
+	if u.Instituicao != nil {
+		existing.Instituicao = u.Instituicao
+	}
+	if u.Municipio != nil {
+		existing.Municipio = u.Municipio
+	}
+	if u.Profissao != nil {
+		existing.Profissao = u.Profissao
+	}
 	if u.Links != nil {
 		existing.Links = u.Links
 	}
@@ -513,9 +523,11 @@ func (r *UsuarioRepository) Update(id int64, u *models.Usuario, plainSenha strin
 
 	_, err = r.db.Exec(
 		`UPDATE usuario SET nome = ?, email = ?, senha = ?, foto = ?, banner = ?, moldura = ?, descricao = ?,
+		 instituicao = ?, municipio = ?, profissao = ?,
 		 links = ?, jogos = ?, status_customizado = ?, perfil = ?, aluno_id = ?, updated_at = NOW()
 		 WHERE id = ?`,
 		existing.Nome, existing.Email, senha, existing.Foto, existing.Banner, existing.Moldura, existing.Descricao,
+		existing.Instituicao, existing.Municipio, existing.Profissao,
 		existing.Links, existing.Jogos, existing.StatusCustomizado, existing.Perfil, existing.AlunoID, id,
 	)
 	if err != nil {

@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/liedsonlb/resenha-patch/internal/models"
-	"github.com/liedsonlb/resenha-patch/internal/queue"
-	"github.com/liedsonlb/resenha-patch/internal/service"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/queue"
+	"github.com/liedsonlb/petsaude-clima/internal/service"
 )
 
 // StartEmailWorker consome a fila webleia.emails e envia cada EmailJob por

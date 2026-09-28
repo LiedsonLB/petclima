@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/liedsonlb/resenha-patch/internal/httpx"
-	"github.com/liedsonlb/resenha-patch/internal/middleware"
+	"github.com/liedsonlb/petsaude-clima/internal/httpx"
+	"github.com/liedsonlb/petsaude-clima/internal/middleware"
 )
 
 // UploadHandler salva imagens enviadas pelos usuários (foto/banner de

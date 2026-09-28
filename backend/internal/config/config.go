@@ -71,13 +71,13 @@ func Load() *Config {
 	liveKitPublicURL := getEnv("LIVEKIT_PUBLIC_URL", liveKitURL)
 
 	return &Config{
-		AppName:    getEnv("APP_NAME", "Resenha"),
+		AppName:    getEnv("APP_NAME", "PET-Saúde Clima"),
 		Port:       getEnv("PORT", "8080"),
 		TokenKey:   getEnv("TOKEN_KEY", "change-me"),
-		AppKey:     getEnv("APP_KEY", "WEBTESTE"),
+		AppKey:     getEnv("APP_KEY", "PETSAUDEWEB"),
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),
-		DBDatabase: getEnv("DB_DATABASE", "resenha"),
+		DBDatabase: getEnv("DB_DATABASE", "petsaude"),
 		DBUser:     getEnv("DB_USERNAME", "root"),
 		DBPassword: getEnv("DB_PASSWORD", ""),
 

@@ -10,7 +10,7 @@
 -- AppKey usada pelo frontend (.env VITE_APP_KEY): WEBTESTE
 
 INSERT INTO `aplicacao` (`nome`, `codigo`, `tipo`, `versao`, `created_at`, `updated_at`)
-VALUES ('Resenha Web', 'WEBTESTE', 1, 1, NOW(), NOW());
+VALUES ('Petsaude Web', 'PETSAUDEWEB', 1, 1, NOW(), NOW());
 
 -- Hash bcrypt de "resenha123" (compatível com golang.org/x/crypto/bcrypt).
 INSERT INTO `usuario` (`nome`, `email`, `senha`, `perfil`, `email_verified_at`, `created_at`, `updated_at`)

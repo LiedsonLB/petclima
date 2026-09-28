@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/liedsonlb/resenha-patch/internal/apperr"
-	"github.com/liedsonlb/resenha-patch/internal/httpx"
-	"github.com/liedsonlb/resenha-patch/internal/models"
-	"github.com/liedsonlb/resenha-patch/internal/repository"
+	"github.com/liedsonlb/petsaude-clima/internal/apperr"
+	"github.com/liedsonlb/petsaude-clima/internal/httpx"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/repository"
 )
 
 type ctxKey string

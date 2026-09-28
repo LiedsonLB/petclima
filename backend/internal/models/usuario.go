@@ -2,11 +2,47 @@ package models
 
 import "time"
 
-// Perfil values, mirroring App\Config\Constantes
+// Perfil values, mirroring App\Config\Constantes — estendidos para os
+// papéis do PET-Saúde Clima (ver documento de escopo da plataforma).
 const (
-	PerfilAdmin = 1
-	PerfilAluno = 2
+	PerfilAdmin        = 1 // Administrador (gestão total da plataforma)
+	PerfilAluno        = 2 // mantido por compatibilidade — equivale a Estudante/Bolsista
+	PerfilEstudante    = PerfilAluno
+	PerfilProfissional = 3 // Profissional de saúde / ACS
+	PerfilGestor       = 4 // Gestor público municipal/estadual
+	PerfilPreceptor    = 5 // Preceptor / orientador de estudantes em campo
+	PerfilCoordenador  = 6 // Coordenador de GAT
 )
+
+// PerfisAutoCadastro são os perfis que uma pessoa pode escolher sozinha na
+// tela de Cadastro (Cadastro.tsx). Preceptor, Coordenador e Admin exigem
+// convite institucional (ver CadastroAluno em login_handler.go).
+var PerfisAutoCadastro = map[int]bool{
+	PerfilEstudante:    true,
+	PerfilProfissional: true,
+	PerfilGestor:       true,
+}
+
+// PerfilLabel devolve o nome amigável do perfil, usado em e-mails e
+// respostas de API que exibem o papel do usuário.
+func PerfilLabel(perfil int) string {
+	switch perfil {
+	case PerfilAdmin:
+		return "Administrador"
+	case PerfilEstudante:
+		return "Estudante/Bolsista"
+	case PerfilProfissional:
+		return "Profissional de Saúde"
+	case PerfilGestor:
+		return "Gestor Público"
+	case PerfilPreceptor:
+		return "Preceptor"
+	case PerfilCoordenador:
+		return "Coordenador de GAT"
+	default:
+		return "Usuário"
+	}
+}
 
 // Usuario maps 1:1 to the `usuario` table exactly as it exists in the
 // production database (see backend/database/hmgmobieduca_webleia_usuario.sql
@@ -47,6 +83,13 @@ type Usuario struct {
 	// outra pessoa). Adicionado em 0005_visibilidade_som.up.sql.
 	Descricao *string `json:"descricao" db:"descricao"`
 
+	// ---- Dados institucionais (0009_perfil_institucional) ---------------
+	// Preenchidos no Cadastro.tsx do portal e usados para segmentar
+	// conteúdo por território/perfil (ex.: materiais do município do ACS).
+	Instituicao *string `json:"instituicao" db:"instituicao"`
+	Municipio   *string `json:"municipio" db:"municipio"`
+	Profissao   *string `json:"profissao" db:"profissao"`
+
 	// ---- Perfil rico (0007_perfil_rico) ---------------------------------
 	// Links e Jogos são guardados como JSON puro na coluna (TEXT) — o
 	// front manda/recebe já como array, o Go só passa a string adiante
@@ -54,7 +97,7 @@ type Usuario struct {
 	Links *string `json:"links" db:"links"` // JSON: [{"label":"GitHub","url":"..."}]
 	Jogos *string `json:"jogos" db:"jogos"` // JSON: ["Minecraft","Valorant"]
 	// StatusCustomizado é a "bio curta" mostrada junto do nome (estilo
-	// status do Discord/WhatsApp), ex.: "fazendo código e resenha".
+	// status do Discord/WhatsApp), ex.: "fazendo código e clima".
 	StatusCustomizado *string `json:"status_customizado" db:"status_customizado"`
 	// Atividade/AtividadeTipo alimentam a presença rica (ver
 	// PresencaBadge.tsx): AtividadeTipo é "jogo" | "voz" | "" (vazio =
@@ -75,8 +118,12 @@ type Usuario struct {
 	Thumb   *string `json:"thumb,omitempty" db:"-"`
 }
 
-func (u *Usuario) IsAdmin() bool { return u.Perfil == PerfilAdmin }
-func (u *Usuario) IsAluno() bool { return u.Perfil == PerfilAluno }
+func (u *Usuario) IsAdmin() bool        { return u.Perfil == PerfilAdmin }
+func (u *Usuario) IsAluno() bool        { return u.Perfil == PerfilAluno }
+func (u *Usuario) IsProfissional() bool { return u.Perfil == PerfilProfissional }
+func (u *Usuario) IsGestor() bool       { return u.Perfil == PerfilGestor }
+func (u *Usuario) IsPreceptor() bool    { return u.Perfil == PerfilPreceptor }
+func (u *Usuario) IsCoordenador() bool  { return u.Perfil == PerfilCoordenador }
 
 // TableName is kept explicit (rather than pluralizing/guessing) so it is
 // always obvious which physical table this struct reads/writes.

@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/liedsonlb/resenha-patch/internal/httpx"
-	"github.com/liedsonlb/resenha-patch/internal/livekit"
-	"github.com/liedsonlb/resenha-patch/internal/middleware"
-	"github.com/liedsonlb/resenha-patch/internal/models"
-	"github.com/liedsonlb/resenha-patch/internal/realtime"
-	"github.com/liedsonlb/resenha-patch/internal/repository"
+	"github.com/liedsonlb/petsaude-clima/internal/httpx"
+	"github.com/liedsonlb/petsaude-clima/internal/livekit"
+	"github.com/liedsonlb/petsaude-clima/internal/middleware"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/realtime"
+	"github.com/liedsonlb/petsaude-clima/internal/repository"
 )
 
 type SalaHandler struct {
@@ -73,7 +73,7 @@ func (h *SalaHandler) Find(w http.ResponseWriter, r *http.Request) {
 
 type salaPayload struct {
 	Nome      string  `json:"nome"`
-	Tipo      string  `json:"tipo"` // reuniao | producao (producao mantido por compat, não usado no Resenha)
+	Tipo      string  `json:"tipo"` // reuniao | producao (producao mantido por compat, não usado no PET-Saúde Clima)
 	Descricao *string `json:"descricao"`
 	Categoria *string `json:"categoria"`
 }

@@ -1,4 +1,4 @@
-module github.com/liedsonlb/resenha-patch
+module github.com/liedsonlb/petsaude-clima
 
 go 1.26.1
 

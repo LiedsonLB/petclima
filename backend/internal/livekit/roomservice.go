@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liedsonlb/resenha-patch/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
 )
 
 // httpBaseURL converte a URL de conexão do LiveKit (ws:// ou wss://, a

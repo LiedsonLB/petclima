@@ -15,12 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liedsonlb/resenha-patch/internal/apperr"
-	"github.com/liedsonlb/resenha-patch/internal/httpx"
-	"github.com/liedsonlb/resenha-patch/internal/mailer"
-	"github.com/liedsonlb/resenha-patch/internal/models"
-	"github.com/liedsonlb/resenha-patch/internal/queue"
-	"github.com/liedsonlb/resenha-patch/internal/repository"
+	"github.com/liedsonlb/petsaude-clima/internal/apperr"
+	"github.com/liedsonlb/petsaude-clima/internal/httpx"
+	"github.com/liedsonlb/petsaude-clima/internal/mailer"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/queue"
+	"github.com/liedsonlb/petsaude-clima/internal/repository"
 )
 
 type LoginHandler struct {
@@ -171,7 +171,7 @@ func (h *LoginHandler) sendVerificationEmail(email, nome string) error {
 			Dados: map[string]string{
 				"nome_destinatario": nome,
 				"link_verificacao":  link,
-				"logo_url":          h.frontendURL + "/webleia_logo.png",
+				"logo_url":          h.frontendURL + "/petsaudeclima_icon.png",
 			},
 			CriadoEm: time.Now(),
 		}
@@ -256,6 +256,10 @@ func (h *LoginHandler) Run(w http.ResponseWriter, r *http.Request) {
 		"banner":            usuario.Banner,
 		"moldura":           usuario.Moldura,
 		"perfil":            usuario.Perfil,
+		"perfil_label":      models.PerfilLabel(usuario.Perfil),
+		"instituicao":       usuario.Instituicao,
+		"municipio":         usuario.Municipio,
+		"profissao":         usuario.Profissao,
 		"email_verified_at": usuario.EmailVerifiedAt,
 		"aluno_id":          usuario.AlunoID,
 		"token":             at.Token,
@@ -264,15 +268,30 @@ func (h *LoginHandler) Run(w http.ResponseWriter, r *http.Request) {
 }
 
 type cadastroRequest struct {
-	Nome     string `json:"nome"`
-	Email    string `json:"email"`
-	Senha    string `json:"senha"`
-	RunLogin string `json:"run_login"`
+	Nome        string `json:"nome"`
+	Email       string `json:"email"`
+	Senha       string `json:"senha"`
+	Instituicao string `json:"instituicao"`
+	Municipio   string `json:"municipio"`
+	Profissao   string `json:"profissao"`
+	Perfil      int    `json:"perfil"`
+	RunLogin    string `json:"run_login"`
 }
 
-// CadastroAluno handles POST /cadastro — cria um usuário comum do Resenha
-// (sem os conceitos de aluno/grau de instrução/instituição do WebLEIA
-// original; aqui é só nome + e-mail + senha, como no mockup de cadastro).
+func strPtrOrNil(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// CadastroAluno handles POST /cadastro — cria um usuário do portal
+// PET-Saúde Clima com os dados institucionais informados no formulário de
+// Cadastro.tsx (instituição, município, profissão/vínculo e perfil).
+// Perfis restritos (Preceptor, Coordenador, Admin) não podem ser
+// autoescolhidos aqui — exigem convite institucional — então qualquer
+// valor fora de models.PerfisAutoCadastro cai para PerfilEstudante.
 func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
 	var req cadastroRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -292,6 +311,11 @@ func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	perfil := req.Perfil
+	if !models.PerfisAutoCadastro[perfil] {
+		perfil = models.PerfilEstudante
+	}
+
 	appKey := r.Header.Get("AppKey")
 	if appKey == "" {
 		httpx.Error(w, "Aplicação não encontrada!", 401)
@@ -309,9 +333,12 @@ func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, err := h.usuarioRepo.Create(&models.Usuario{
-		Nome:   req.Nome,
-		Email:  req.Email,
-		Perfil: models.PerfilAluno,
+		Nome:        req.Nome,
+		Email:       req.Email,
+		Perfil:      perfil,
+		Instituicao: strPtrOrNil(req.Instituicao),
+		Municipio:   strPtrOrNil(req.Municipio),
+		Profissao:   strPtrOrNil(req.Profissao),
 	}, req.Senha)
 	if err != nil {
 		if ae, ok := apperr.As(err); ok {
@@ -350,7 +377,11 @@ func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, 201, map[string]any{
 		"id": created.ID, "nome": created.Nome, "email": created.Email,
 		"foto": created.Foto, "perfil": created.Perfil,
-		"token": at.Token,
+		"perfil_label": models.PerfilLabel(created.Perfil),
+		"instituicao":  created.Instituicao,
+		"municipio":    created.Municipio,
+		"profissao":    created.Profissao,
+		"token":        at.Token,
 	})
 }
 
@@ -473,11 +504,11 @@ func (h *LoginHandler) EsqueciSenha(w http.ResponseWriter, r *http.Request) {
 			Tipo:         models.EmailTipoRedefinirSenha,
 			Destinatario: req.Email,
 			NomeDestino:  usuario.Nome,
-			Assunto:      "Redefinição de senha — Resenha",
+			Assunto:      "Redefinição de senha — PET-Saúde Clima",
 			Dados: map[string]string{
 				"nome_destinatario": usuario.Nome,
 				"link_redefinicao":  link,
-				"logo_url":          h.frontendURL + "/resenha_logo.png",
+				"logo_url":          h.frontendURL + "/petsaudeclima_icon.png",
 			},
 			CriadoEm: time.Now(),
 		}

@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/liedsonlb/resenha-patch/internal/config"
-	"github.com/liedsonlb/resenha-patch/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/config"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
 )
 
 type EmailService struct {
@@ -49,6 +49,11 @@ func (e *EmailService) Enviar(job models.EmailJob) error {
 		data["nome_destinatario"] = job.NomeDestino
 	}
 	data["assunto"] = job.Assunto
+	// Garante que todo e-mail tenha a logo do PET-Saúde Clima, mesmo quando
+	// quem disparou o job (job.Dados) não passou logo_url explicitamente.
+	if _, ok := data["logo_url"]; !ok {
+		data["logo_url"] = e.cfg.FrontendURL + "/petsaudeclima_icon.png"
+	}
 
 	var htmlBody bytes.Buffer
 	if err := tmpl.Execute(&htmlBody, data); err != nil {

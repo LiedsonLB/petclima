@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/liedsonlb/resenha-patch/internal/apperr"
-	"github.com/liedsonlb/resenha-patch/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/apperr"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
 )
 
 type SalaRepository struct {
@@ -91,7 +91,7 @@ func (r *SalaRepository) FindByCodigo(codigo string) (*models.Sala, error) {
 }
 
 // Create cria uma sala/comunidade. generoTextualID é mantido apenas por
-// compatibilidade com o schema antigo e não é mais usado pelo Resenha
+// compatibilidade com o schema antigo e não é mais usado pelo PET-Saúde Clima
 // (sempre nil aqui).
 func (r *SalaRepository) Create(nome, tipo string, descricao, categoria *string, criadoPor int64) (*models.Sala, error) {
 	if nome == "" {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/liedsonlb/resenha-patch/internal/apperr"
-	"github.com/liedsonlb/resenha-patch/internal/models"
+	"github.com/liedsonlb/petsaude-clima/internal/apperr"
+	"github.com/liedsonlb/petsaude-clima/internal/models"
 )
 
 // CidadeListParams mirrors CidadeRepository::where (nome, uf filters) plus

@@ -12,10 +12,10 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/liedsonlb/resenha-patch/internal/config"
-	"github.com/liedsonlb/resenha-patch/internal/queue"
-	"github.com/liedsonlb/resenha-patch/internal/service"
-	"github.com/liedsonlb/resenha-patch/internal/worker"
+	"github.com/liedsonlb/petsaude-clima/internal/config"
+	"github.com/liedsonlb/petsaude-clima/internal/queue"
+	"github.com/liedsonlb/petsaude-clima/internal/service"
+	"github.com/liedsonlb/petsaude-clima/internal/worker"
 )
 
 func main() {
