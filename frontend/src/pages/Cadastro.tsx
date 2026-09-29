@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Cloud, Mail, Lock, Eye, EyeOff, ArrowRight,
+  Mail, Lock, Eye, EyeOff, ArrowRight,
   User, Building2, GraduationCap, Users, ClipboardCheck, ChevronDown, AlertCircle, MapPinned,
 } from 'lucide-react';
 import LegalModal, { type LegalDoc } from '../components/LegalModal';

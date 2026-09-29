@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Mail, ArrowRight, ArrowLeft, MailCheck, AlertCircle, KeyRound,
+  Mail, ArrowRight, ArrowLeft, MailCheck, AlertCircle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ApiError } from '../lib/api';

@@ -26,7 +26,7 @@ export default function RedefinirSenha() {
   const temMinimo = senha.length >= 6;
   const temMaiuscula = /[A-Z]/.test(senha);
   const temNumero = /\d/.test(senha);
-  const senhasIguais = senha && senha === confirmarSenha;
+  const senhasIguais = senha.length > 0 && senha === confirmarSenha;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
