@@ -11,11 +11,11 @@ import (
 	amqp "github.com/streadway/amqp"
 )
 
-// Nomes das filas usadas pelo WebLEIA.
+// Nomes das filas usadas pelo PET-Saúde Clima.
 const (
-	QueueEmail            = "webleia.emails"
-	QueueExport           = "webleia.exportacoes"
-	QueueExportConcluida  = "webleia.exportacoes.concluidas"
+	QueueEmail            = "petsaude.emails"
+	QueueExport           = "petsaude.exportacoes"
+	QueueExportConcluida  = "petsaude.exportacoes.concluidas"
 )
 
 type RabbitMQ struct {

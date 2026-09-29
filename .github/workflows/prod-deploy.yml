@@ -2,7 +2,7 @@ name: Deploy PET-Saúde Clima
 
 on:
   push:
-    branches: [ PETSAUDE-3 ]
+    branches: [ main ]
 
 jobs:
 
