@@ -118,8 +118,6 @@ services:
       - api
       - livekit
     volumes:
-      - ./certbot/www:/var/www/certbot
-      - ./certbot/conf:/etc/letsencrypt
       # Nginx serve uploads diretamente do volume (sem passar pela API)
       - uploads_data:/app/uploads:ro
     networks:
