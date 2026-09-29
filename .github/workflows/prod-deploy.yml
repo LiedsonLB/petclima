@@ -61,7 +61,7 @@ jobs:
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
             VITE_APP_KEY=${{ secrets.VITE_APP_KEY }}
-            VITE_LIVEKIT_URL=wss://petsaudeclima.mooo.com/livekit
+            VITE_LIVEKIT_URL=ws://petsaudeclima.mooo.com/livekit
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-frontend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-frontend:${{ github.sha }}
@@ -76,17 +76,14 @@ jobs:
       run:
         working-directory: ${{ github.workspace }}
     steps:
+      # Corrige arquivos que ficaram como root (ex: certbot/conf) antes do
+      # checkout tentar limpar o workspace.
+      - name: Corrigir permissões do workspace
+        run: sudo chown -R $USER:$USER ${{ github.workspace }}
+
       - uses: actions/checkout@v4
 
       # ---- Gera backend/.env a partir dos Secrets ----------------------
-      # Importante: as credenciais NÃO vão para dentro da imagem (imagens
-      # de produção às vezes acabam sendo vistas por mais gente do que
-      # deveriam, e nesse caso qualquer um com `docker pull` conseguiria ler
-      # os segredos das camadas). Em vez disso o arquivo é escrito no disco
-      # do runner e entra no container em tempo de execução via `env_file`
-      # no docker-compose.yml — o efeito prático (variáveis disponíveis
-      # dentro do container) é o mesmo, mas a imagem publicada no Docker Hub
-      # continua "limpa".
       - name: Gerar backend/.env
         run: |
           cat > backend/.env <<EOF
@@ -117,8 +114,8 @@ jobs:
 
           LIVEKIT_API_KEY=${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET=${{ secrets.LIVEKIT_API_SECRET }}
-          LIVEKIT_URL=wss://petsaudeclima.mooo.com/livekit
-          LIVEKIT_PUBLIC_URL=wss://petsaudeclima.mooo.com/livekit
+          LIVEKIT_URL=ws://petsaudeclima.mooo.com/livekit
+          LIVEKIT_PUBLIC_URL=ws://petsaudeclima.mooo.com/livekit
 
           UPLOAD_DIR=/app/uploads
           EOF
@@ -144,11 +141,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # ---- Sobe tudo via docker compose ---------------------------------
-      # As imagens de api/worker-email/frontend já foram construídas e
-      # publicadas no job anterior com a tag ${{ github.sha }}; aqui só
-      # puxamos essa mesma tag (via IMAGE_TAG no .env) e recriamos os
-      # containers. Sem --build: se usasse, o compose ignoraria a imagem
-      # publicada e recompilaria localmente no runner.
       - name: Deploy (docker compose)
         run: |
           docker compose pull
