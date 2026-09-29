@@ -61,7 +61,7 @@ jobs:
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
             VITE_APP_KEY=${{ secrets.VITE_APP_KEY }}
-            VITE_LIVEKIT_URL=ws://petsaudeclima.mooo.com/livekit
+            VITE_LIVEKIT_URL=wss://petsaudeclima.prp.uespi.br/livekit
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-frontend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-frontend:${{ github.sha }}
@@ -76,63 +76,23 @@ jobs:
       run:
         working-directory: ${{ github.workspace }}
     steps:
-      # Corrige arquivos que ficaram como root (ex: certbot/conf) antes do
-      # checkout tentar limpar o workspace.
-      - name: Corrigir permissões do workspace
-        run: sudo chown -R $USER:$USER ${{ github.workspace }}
-
       - uses: actions/checkout@v4
 
-      # ---- Gera backend/.env a partir dos Secrets ----------------------
-      - name: Gerar backend/.env
+      # ---- Restaura os .env que vivem fora do workspace ----------------
+      # O checkout apaga tudo que não está no Git. Por isso os .env ficam
+      # em /opt/petsaude/ (fora do workspace) e são copiados pra dentro
+      # agora, já depois da limpeza do checkout.
+      - name: Restaurar .envs do servidor
         run: |
-          cat > backend/.env <<EOF
-          APP_NAME=PET-Saúde Clima
-          PORT=8080
-          TOKEN_KEY=${{ secrets.TOKEN_KEY }}
-          APP_KEY=${{ secrets.APP_KEY }}
+          cp /opt/petsaude/.env ./.env
+          cp /opt/petsaude/backend.env ./backend/.env
 
-          DB_HOST=mysql
-          DB_PORT=3306
-          DB_DATABASE=${{ secrets.MYSQL_DATABASE }}
-          DB_USERNAME=root
-          DB_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
-
-          FRONTEND_URL=${{ secrets.FRONTEND_URL }}
-
-          RABBIT_URL=amqp://${{ secrets.RABBITMQ_DEFAULT_USER }}:${{ secrets.RABBITMQ_DEFAULT_PASS }}@rabbitmq:5672/
-
-          MAIL_MAILER=smtp
-          MAIL_HOST=${{ secrets.MAIL_HOST }}
-          MAIL_PORT=${{ secrets.MAIL_PORT }}
-          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
-          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
-          MAIL_ENCRYPTION=tls
-          MAIL_FROM_ADDRESS=${{ secrets.MAIL_FROM_ADDRESS }}
-          MAIL_FROM_NAME="PET-Saúde Clima"
-          VERIFICATION_SECRET=${{ secrets.VERIFICATION_SECRET }}
-
-          LIVEKIT_API_KEY=${{ secrets.LIVEKIT_API_KEY }}
-          LIVEKIT_API_SECRET=${{ secrets.LIVEKIT_API_SECRET }}
-          LIVEKIT_URL=ws://petsaudeclima.mooo.com/livekit
-          LIVEKIT_PUBLIC_URL=ws://petsaudeclima.mooo.com/livekit
-
-          UPLOAD_DIR=/app/uploads
-          EOF
-
-      # ---- Gera o .env de infraestrutura (variáveis do compose) --------
-      - name: Gerar .env do docker-compose
+      # ---- Atualiza IMAGE_TAG com o SHA do commit atual ----------------
+      # O .env do servidor tem IMAGE_TAG=latest como fallback; aqui
+      # sobrescrevemos com a tag exata que o build-and-push publicou.
+      - name: Atualizar IMAGE_TAG
         run: |
-          cat > .env <<EOF
-          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-          IMAGE_TAG=${{ github.sha }}
-          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
-          MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }}
-          RABBITMQ_DEFAULT_USER=${{ secrets.RABBITMQ_DEFAULT_USER }}
-          RABBITMQ_DEFAULT_PASS=${{ secrets.RABBITMQ_DEFAULT_PASS }}
-          VITE_API_URL=${{ secrets.VITE_API_URL }}
-          VITE_APP_KEY=${{ secrets.VITE_APP_KEY }}
-          EOF
+          sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${{ github.sha }}|" ./.env
 
       - name: Login DockerHub
         uses: docker/login-action@v3

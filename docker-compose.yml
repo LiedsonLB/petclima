@@ -1,12 +1,8 @@
 # Pipeline local/produção do PET-Saúde Clima.
 #
-# Duas camadas de configuração:
-#   - `.env` (raiz, fora do controle de versão) -> só variáveis usadas pelo
-#     PRÓPRIO docker-compose (senha do mysql/rabbitmq, tags de imagem, args
-#     de build do frontend). Veja `.env.example`.
-#   - `backend/.env` -> config da aplicação Go (SMTP, chaves, etc.), lida
-#     pelos containers `api` e `worker-email` via `env_file`. Veja
-#     `backend/.env.example`.
+# Os arquivos .env NÃO ficam no repo. Eles vivem em /opt/petsaude/ no
+# servidor e são copiados para dentro do workspace no momento do deploy
+# (ver .github/workflows/deploy.yml, passo "Restaurar .envs").
 
 services:
   mysql:
@@ -61,7 +57,8 @@ services:
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml
     environment:
-      LIVEKIT_KEYS: "devkey: 7xK9mP2qR4sT8vW3yZ5cF6hJ1nL4oB8aD0"
+      # Tem que ser IGUAL ao LIVEKIT_API_KEY/LIVEKIT_API_SECRET do backend.env
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
     networks:
       - petsaude-network
 
@@ -75,14 +72,13 @@ services:
     environment:
       DB_HOST: mysql
       RABBIT_URL: amqp://${RABBITMQ_DEFAULT_USER:-petsaude}:${RABBITMQ_DEFAULT_PASS:-petsaude_rabbit}@rabbitmq:5672/
-      LIVEKIT_URL: wss://petsaudeclima.mooo.com/livekit
-      LIVEKIT_PUBLIC_URL: wss://petsaudeclima.mooo.com/livekit
+      LIVEKIT_URL: wss://petsaudeclima.prp.uespi.br/livekit
+      LIVEKIT_PUBLIC_URL: wss://petsaudeclima.prp.uespi.br/livekit
     depends_on:
       mysql:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    # ── Volume de uploads persistente: as imagens sobrevivem aos deploys ──
     volumes:
       - uploads_data:/app/uploads
     networks:
@@ -113,12 +109,10 @@ services:
       - LIVEKIT_HOST=livekit
     ports:
       - "80:80"
-      - "443:443"
     depends_on:
       - api
       - livekit
     volumes:
-      # Nginx serve uploads diretamente do volume (sem passar pela API)
       - uploads_data:/app/uploads:ro
     networks:
       - petsaude-network
