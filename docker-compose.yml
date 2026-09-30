@@ -4,6 +4,7 @@
 # servidor e são copiados para dentro do workspace no momento do deploy
 # (ver .github/workflows/deploy.yml, passo "Restaurar .envs").
 
+
 services:
   mysql:
     image: mysql:8.0
