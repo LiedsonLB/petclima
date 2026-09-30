@@ -8,7 +8,6 @@ import (
 	"github.com/liedsonlb/petsaude-clima/internal/queue"
 	"github.com/liedsonlb/petsaude-clima/internal/service"
 )
-
 // StartEmailWorker consome a fila webleia.emails e envia cada EmailJob por
 // SMTP (com o template HTML correspondente a job.Tipo). Mesma estrutura de
 // consumo usada no worker-email do projeto Mensageria, adaptada para

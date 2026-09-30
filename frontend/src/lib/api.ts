@@ -4,7 +4,7 @@
 // backend/internal/router/router.go); rotas autenticadas exigem também o
 // header `TokenUser`, no formato "{id}:{token_curto}:{token_longo_ou_igual}"
 // tal como devolvido pelo backend em `usuario.id` + `token`.
-export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:8080').replace(/\/$/, '');
+export const API_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 export const APP_KEY = import.meta.env.VITE_APP_KEY ?? 'PETSAUDEWEB';
 
 const TOKEN_KEY = 'petsaudeclima:token';

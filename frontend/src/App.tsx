@@ -30,9 +30,9 @@ function Protegida({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <BrowserRouter>
+    <BrowserRouter>
+      <ThemeProvider>
+        <AuthProvider>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
@@ -51,9 +51,9 @@ function App() {
             <Route path="/repositorio" element={<Protegida><Repositorio /></Protegida>} />
             <Route path="/configuracoes" element={<Protegida><Configuracoes /></Protegida>} />
           </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </ThemeProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </BrowserRouter>
   );
 }
 

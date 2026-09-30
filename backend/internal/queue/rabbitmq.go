@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 
 	amqp "github.com/streadway/amqp"
 )
@@ -19,6 +20,7 @@ const (
 )
 
 type RabbitMQ struct {
+	mu   sync.Mutex
 	conn *amqp.Connection
 	ch   *amqp.Channel
 	url  string
@@ -53,6 +55,19 @@ func NewRabbitMQ(url string) (*RabbitMQ, error) {
 }
 
 func (r *RabbitMQ) newChannel() (*amqp.Channel, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Se a conexão caiu (restart do broker, timeout de rede), reconecta em vez
+	// de falhar para sempre — antes disso a API caía no envio direto (texto puro).
+	if r.conn == nil || r.conn.IsClosed() {
+		conn, err := amqp.Dial(r.url)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao reconectar RabbitMQ: %w", err)
+		}
+		r.conn = conn
+		log.Println("🔄 RabbitMQ reconectado")
+	}
 	return r.conn.Channel()
 }
 

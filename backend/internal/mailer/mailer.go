@@ -10,8 +10,11 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"mime"
 	"net/smtp"
 	"time"
+
+	"github.com/liedsonlb/petsaude-clima/internal/emailtpl"
 )
 
 type Config struct {
@@ -110,6 +113,17 @@ func (m *Mailer) SendNewLogin(to, name, ip, frontendURL, appName string) error {
 	return m.Send(to, subject, body)
 }
 
+// SendTemplate renderiza templates/email/<tipo>.html (o mesmo usado pelo
+// worker-email) e envia direto por SMTP. É o fallback quando a fila do
+// RabbitMQ não está disponível — assim o e-mail sai igualmente bonito.
+func (m *Mailer) SendTemplate(tipo, to, subject string, data map[string]string) error {
+	body, err := emailtpl.Render(tipo, data)
+	if err != nil {
+		return err
+	}
+	return m.Send(to, subject, body)
+}
+
 // renderTemplate renderiza um template HTML
 func (m *Mailer) renderTemplate(templateStr string, data EmailData) (string, error) {
 	t, err := template.New("email").Parse(templateStr)
@@ -134,9 +148,9 @@ func (m *Mailer) Send(to, subject, body string) error {
 	}
 
 	addr := fmt.Sprintf("%s:%s", m.cfg.Host, m.cfg.Port)
-	msg := []byte("From: " + m.cfg.From + "\r\n" +
+	msg := []byte("From: PET-Saúde Clima <" + m.cfg.From + ">\r\n" +
 		"To: " + to + "\r\n" +
-		"Subject: " + subject + "\r\n" +
+		"Subject: " + mime.QEncoding.Encode("UTF-8", subject) + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: text/html; charset=UTF-8\r\n" +
 		"\r\n" +

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -81,7 +82,7 @@ func Load() *Config {
 		DBUser:     getEnv("DB_USERNAME", "root"),
 		DBPassword: getEnv("DB_PASSWORD", ""),
 
-		FrontendURL: getEnv("FRONTEND_URL", "http://localhost:5173"),
+		FrontendURL: strings.TrimRight(getEnv("FRONTEND_URL", "http://localhost:5173"), "/"),
 
 		RabbitURL: getEnv("RABBIT_URL", "amqp://guest:guest@localhost:5672/"),
 

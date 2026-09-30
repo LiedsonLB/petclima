@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -160,32 +161,33 @@ func (h *LoginHandler) sendVerificationEmail(email, nome string) error {
 		return err
 	}
 
-	link := fmt.Sprintf("%s/confirmar-email?email=%s&token=%s", h.frontendURL, email, token)
+	link := fmt.Sprintf("%s/confirmar-email?email=%s&token=%s", h.frontendURL, url.QueryEscape(email), url.QueryEscape(token))
+
+	dados := map[string]string{
+		"nome_destinatario": nome,
+		"link_verificacao":  link,
+		"logo_url":          h.frontendURL + "/petsaudeclima_icon.png",
+	}
+	assunto := "Confirme seu e-mail — " + h.appName
 
 	if h.rabbit != nil {
 		job := models.EmailJob{
 			Tipo:         models.EmailTipoVerificacaoEmail,
 			Destinatario: email,
 			NomeDestino:  nome,
-			Assunto:      "Confirme seu e-mail — " + h.appName,
-			Dados: map[string]string{
-				"nome_destinatario": nome,
-				"link_verificacao":  link,
-				"logo_url":          h.frontendURL + "/petsaudeclima_icon.png",
-			},
-			CriadoEm: time.Now(),
+			Assunto:      assunto,
+			Dados:        dados,
+			CriadoEm:     time.Now(),
 		}
 		if err := h.rabbit.Publish(queue.QueueEmail, job); err == nil {
 			return nil
+		} else {
+			log.Println("erro ao publicar e-mail de verificação na fila, tentando envio direto:", err)
 		}
-		log.Println("erro ao publicar e-mail de verificação na fila, tentando envio direto")
 	}
 
-	body := fmt.Sprintf(
-		"Olá, %s!\n\nPara ativar sua conta no %s, confirme seu e-mail clicando no link abaixo (válido por 48 horas):\n\n%s\n\nSe você não fez este cadastro, ignore este e-mail.",
-		nome, h.appName, link,
-	)
-	return h.mailer.Send(email, "Confirme seu e-mail — "+h.appName, body)
+	// Fallback: envia direto, mas com o MESMO template HTML do worker.
+	return h.mailer.SendTemplate(models.EmailTipoVerificacaoEmail, email, assunto, dados)
 }
 
 // Run handles POST /acesso/login, mirroring LoginController::run.
@@ -496,7 +498,14 @@ func (h *LoginHandler) EsqueciSenha(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link := fmt.Sprintf("%s/redefinir-senha?email=%s&token=%s", h.frontendURL, req.Email, token)
+	link := fmt.Sprintf("%s/redefinir-senha?email=%s&token=%s", h.frontendURL, url.QueryEscape(req.Email), url.QueryEscape(token))
+
+	dados := map[string]string{
+		"nome_destinatario": usuario.Nome,
+		"link_redefinicao":  link,
+		"logo_url":          h.frontendURL + "/petsaudeclima_icon.png",
+	}
+	assunto := "Redefinição de senha — " + h.appName
 
 	sent := false
 	if h.rabbit != nil {
@@ -504,13 +513,9 @@ func (h *LoginHandler) EsqueciSenha(w http.ResponseWriter, r *http.Request) {
 			Tipo:         models.EmailTipoRedefinirSenha,
 			Destinatario: req.Email,
 			NomeDestino:  usuario.Nome,
-			Assunto:      "Redefinição de senha — PET-Saúde Clima",
-			Dados: map[string]string{
-				"nome_destinatario": usuario.Nome,
-				"link_redefinicao":  link,
-				"logo_url":          h.frontendURL + "/petsaudeclima_icon.png",
-			},
-			CriadoEm: time.Now(),
+			Assunto:      assunto,
+			Dados:        dados,
+			CriadoEm:     time.Now(),
 		}
 		if err := h.rabbit.Publish(queue.QueueEmail, emailJob); err != nil {
 			log.Println("erro ao publicar e-mail de redefinição na fila:", err)
@@ -519,11 +524,8 @@ func (h *LoginHandler) EsqueciSenha(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !sent {
-		body := fmt.Sprintf(
-			"Olá, %s!\n\nRecebemos um pedido para redefinir sua senha no %s.\nClique no link abaixo para escolher uma nova senha (válido por 1 hora):\n\n%s\n\nSe você não pediu isso, pode ignorar este e-mail.",
-			usuario.Nome, h.appName, link,
-		)
-		if err := h.mailer.Send(req.Email, "Redefinição de senha — "+h.appName, body); err != nil {
+		// Fallback: envia direto, mas com o MESMO template HTML do worker.
+		if err := h.mailer.SendTemplate(models.EmailTipoRedefinirSenha, req.Email, assunto, dados); err != nil {
 			log.Println(err)
 		}
 	}

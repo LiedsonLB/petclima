@@ -21,13 +21,12 @@ RUN npm run build
 # ---------- PRODUCTION ----------
 FROM nginx:alpine
 
-RUN apk add --no-cache openssl
-
 RUN rm -rf /usr/share/nginx/html/*
 
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/nginx.conf.template
-RUN chmod +x /docker-entrypoint.sh
+# A imagem oficial do nginx roda envsubst em /etc/nginx/templates/*.template
+# e grava o resultado em /etc/nginx/conf.d/ (por isso o arquivo é só o bloco server).
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 ENV BACKEND_HOST=api
 ENV LIVEKIT_HOST=livekit
