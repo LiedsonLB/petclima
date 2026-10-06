@@ -1,18 +1,22 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import {
   login as apiLogin,
+  logout as apiLogout,
+  me as apiMe,
   cadastrar as apiCadastrar,
   esqueciSenha as apiEsqueciSenha,
   redefinirSenha as apiRedefinirSenha,
   confirmarEmail as apiConfirmarEmail,
   reenviarConfirmacao as apiReenviarConfirmacao,
-  saveSession, clearSession, getStoredUser,
-  isAuthenticated, type Usuario, type CadastroPayload,
+  limparSessaoLegada, SESSION_EXPIRED_EVENT,
+  type Usuario, type CadastroPayload,
 } from '../lib/api';
 
 interface AuthContextValue {
   usuario: Usuario | null;
   autenticado: boolean;
+  /** true enquanto o site confirma com o servidor se já existe sessão (cookie). */
+  verificando: boolean;
   carregando: boolean;
   entrar: (email: string, senha: string, manterConectado?: boolean) => Promise<Usuario>;
   cadastrar: (payload: CadastroPayload) => Promise<Usuario>;
@@ -26,14 +30,34 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [usuario, setUsuario] = useState<Usuario | null>(() => getStoredUser());
+  // A sessão vive num cookie HttpOnly que o JavaScript não enxerga; aqui só
+  // guardamos em memória quem é o usuário, perguntando ao servidor (/acesso/me).
+  const [usuario, setUsuario] = useState<Usuario | null>(null);
+  const [verificando, setVerificando] = useState(true);
   const [carregando, setCarregando] = useState(false);
+
+  useEffect(() => {
+    limparSessaoLegada();
+
+    let ativo = true;
+    apiMe()
+      .then((u) => ativo && setUsuario(u))
+      .catch(() => ativo && setUsuario(null))
+      .finally(() => ativo && setVerificando(false));
+
+    // Qualquer rota autenticada que responda 401 derruba a sessão local.
+    const aoExpirar = () => setUsuario(null);
+    window.addEventListener(SESSION_EXPIRED_EVENT, aoExpirar);
+    return () => {
+      ativo = false;
+      window.removeEventListener(SESSION_EXPIRED_EVENT, aoExpirar);
+    };
+  }, []);
 
   const entrar = useCallback(async (email: string, senha: string, manterConectado = true) => {
     setCarregando(true);
     try {
       const result = await apiLogin(email, senha, manterConectado);
-      saveSession(result);
       setUsuario(result);
       return result;
     } finally {
@@ -58,7 +82,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await apiRedefinirSenha(email, token, novaSenha);
   }, []);
 
-  // ---- NOVOS ----
   const confirmarEmail = useCallback(async (email: string, token: string) => {
     await apiConfirmarEmail(email, token);
   }, []);
@@ -67,16 +90,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await apiReenviarConfirmacao(email);
   }, []);
 
+  // Sai da tela na hora e avisa o servidor, que revoga o token e apaga o cookie.
   const sair = useCallback(() => {
-    clearSession();
     setUsuario(null);
+    apiLogout().catch(() => {
+      /* sessão já expirada ou sem rede: o cookie some quando expirar */
+    });
   }, []);
 
   return (
     <AuthContext.Provider
       value={{
         usuario,
-        autenticado: isAuthenticated(),
+        autenticado: usuario !== null,
+        verificando,
         carregando,
         entrar,
         cadastrar,

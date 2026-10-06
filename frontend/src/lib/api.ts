@@ -1,14 +1,18 @@
 // Cliente HTTP fino para a API do PET-Saúde Clima (backend Go).
 //
-// Todas as rotas de acesso exigem o header `AppKey` (ver
-// backend/internal/router/router.go); rotas autenticadas exigem também o
-// header `TokenUser`, no formato "{id}:{token_curto}:{token_longo_ou_igual}"
-// tal como devolvido pelo backend em `usuario.id` + `token`.
+// Autenticação: o backend grava a sessão em um cookie HttpOnly (`pet_session`)
+// no login. O navegador envia esse cookie sozinho em toda requisição
+// (`credentials: 'include'`); o JavaScript NÃO consegue ler o token, então um
+// eventual XSS não leva a sessão embora. Por isso este arquivo não guarda
+// token nenhum em localStorage/sessionStorage.
+//
+// A `AppKey` identifica a aplicação no login (não é segredo: vai no bundle).
 export const API_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 export const APP_KEY = import.meta.env.VITE_APP_KEY ?? 'PETSAUDEWEB';
 
-const TOKEN_KEY = 'petsaudeclima:token';
-const USER_KEY = 'petsaudeclima:user';
+// Disparado quando uma rota autenticada responde 401 (sessão expirada,
+// revogada ou inexistente). O AuthContext escuta e leva o usuário ao login.
+export const SESSION_EXPIRED_EVENT = 'petclima:session-expired';
 
 export interface Usuario {
   id: number;
@@ -21,7 +25,6 @@ export interface Usuario {
   municipio?: string | null;
   profissao?: string | null;
   email_verified_at?: string | null;
-  token?: string;
 }
 
 export class ApiError extends Error {
@@ -34,54 +37,40 @@ export class ApiError extends Error {
   }
 }
 
-function authHeader(): string | null {
-  const raw = localStorage.getItem(USER_KEY);
-  const token = localStorage.getItem(TOKEN_KEY);
-  if (!raw || !token) return null;
-  const user = JSON.parse(raw) as Usuario;
-  return `${user.id}:${token}:${APP_KEY}`;
-}
-
 async function request<T>(path: string, options: RequestInit = {}, auth = false): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     AppKey: APP_KEY,
     ...(options.headers as Record<string, string> | undefined),
   };
-  if (auth) {
-    const tokenUser = authHeader();
-    if (tokenUser) headers.TokenUser = tokenUser;
-  }
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include', // envia/recebe o cookie de sessão
+  });
   const isJson = res.headers.get('content-type')?.includes('application/json');
   const body = isJson ? await res.json().catch(() => ({})) : {};
 
   if (!res.ok) {
+    if (auth && res.status === 401) {
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    }
     const message = body?.message || body?.error || 'Não foi possível completar a solicitação.';
     throw new ApiError(message, res.status, body?.fields);
   }
   return body as T;
 }
 
-export function saveSession(usuario: Usuario) {
-  const { token, ...rest } = usuario;
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  localStorage.setItem(USER_KEY, JSON.stringify(rest));
-}
-
-export function clearSession() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
-}
-
-export function getStoredUser(): Usuario | null {
-  const raw = localStorage.getItem(USER_KEY);
-  return raw ? (JSON.parse(raw) as Usuario) : null;
-}
-
-export function isAuthenticated(): boolean {
-  return Boolean(localStorage.getItem(TOKEN_KEY) && localStorage.getItem(USER_KEY));
+// Remove o token/usuário que versões antigas do site guardavam em
+// localStorage, para que não fiquem esquecidos no navegador.
+export function limparSessaoLegada() {
+  try {
+    localStorage.removeItem('petsaudeclima:token');
+    localStorage.removeItem('petsaudeclima:user');
+  } catch {
+    /* localStorage indisponível: nada a limpar */
+  }
 }
 
 // ---- acesso / cadastro -----------------------------------------------
@@ -90,6 +79,16 @@ export function login(email: string, senha: string, longToken = true) {
     method: 'POST',
     body: JSON.stringify({ email, senha, long_token: longToken ? 'sim' : 'nao' }),
   });
+}
+
+// Usuário da sessão atual (lida do cookie). 401 => ninguém logado.
+export function me() {
+  return request<Usuario>('/acesso/me', { method: 'GET' }, true);
+}
+
+// Revoga o token no servidor e apaga o cookie.
+export function logout() {
+  return request<{ message: string }>('/acesso/logout', { method: 'POST' }, true);
 }
 
 export interface CadastroPayload {

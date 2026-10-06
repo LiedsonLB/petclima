@@ -19,6 +19,7 @@ import (
 	"github.com/liedsonlb/petsaude-clima/internal/apperr"
 	"github.com/liedsonlb/petsaude-clima/internal/httpx"
 	"github.com/liedsonlb/petsaude-clima/internal/mailer"
+	"github.com/liedsonlb/petsaude-clima/internal/middleware"
 	"github.com/liedsonlb/petsaude-clima/internal/models"
 	"github.com/liedsonlb/petsaude-clima/internal/queue"
 	"github.com/liedsonlb/petsaude-clima/internal/repository"
@@ -250,23 +251,62 @@ func (h *LoginHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := map[string]any{
-		"id":                usuario.ID,
-		"nome":              usuario.Nome,
-		"email":             usuario.Email,
-		"foto":              usuario.Foto,
-		"banner":            usuario.Banner,
-		"moldura":           usuario.Moldura,
-		"perfil":            usuario.Perfil,
-		"perfil_label":      models.PerfilLabel(usuario.Perfil),
-		"instituicao":       usuario.Instituicao,
-		"municipio":         usuario.Municipio,
-		"profissao":         usuario.Profissao,
-		"email_verified_at": usuario.EmailVerifiedAt,
-		"aluno_id":          usuario.AlunoID,
-		"token":             at.Token,
+	// A sessão vai em cookie HttpOnly (JavaScript não consegue ler); o token
+	// NÃO é devolvido no corpo da resposta.
+	middleware.SetSessionCookie(w, usuario.ID, at.Token, app.Codigo,
+		models.IsLongToken(at.Token), middleware.IsSecureRequest(r, h.frontendURL))
+	httpx.JSON(w, 200, sessaoUsuarioPayload(usuario))
+}
+
+// sessaoUsuarioPayload é o recorte público do usuário devolvido no login e em
+// GET /acesso/me (nunca inclui senha nem token).
+func sessaoUsuarioPayload(u *models.Usuario) map[string]any {
+	return map[string]any{
+		"id":                u.ID,
+		"nome":              u.Nome,
+		"email":             u.Email,
+		"foto":              u.Foto,
+		"banner":            u.Banner,
+		"moldura":           u.Moldura,
+		"perfil":            u.Perfil,
+		"perfil_label":      models.PerfilLabel(u.Perfil),
+		"instituicao":       u.Instituicao,
+		"municipio":         u.Municipio,
+		"profissao":         u.Profissao,
+		"email_verified_at": u.EmailVerifiedAt,
+		"aluno_id":          u.AlunoID,
 	}
-	httpx.JSON(w, 200, resp)
+}
+
+// Me handles GET /acesso/me (atrás do RequireAuth): devolve o usuário da
+// sessão atual. O frontend chama ao abrir o site para saber se há sessão
+// válida — já que não guarda mais nada no navegador — e, para sessões de
+// "manter conectado", aproveita para renovar o cookie (30 dias a partir de
+// agora).
+func (h *LoginHandler) Me(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r)
+	if u == nil {
+		httpx.Error(w, "Não autenticado!", 401)
+		return
+	}
+	if cred, ok := middleware.ExtractCredentials(r); ok && cred.FromCookie && models.IsLongToken(cred.Token) {
+		middleware.SetSessionCookie(w, cred.UserID, cred.Token, cred.AppKey, true,
+			middleware.IsSecureRequest(r, h.frontendURL))
+	}
+	httpx.JSON(w, 200, sessaoUsuarioPayload(u))
+}
+
+// Logout handles POST /acesso/logout (atrás do RequireAuth): invalida o
+// token no banco e apaga o cookie. Sem isso, "sair" só limparia o navegador
+// e o token continuaria válido no servidor.
+func (h *LoginHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	if cred, ok := middleware.ExtractCredentials(r); ok {
+		if err := h.tokenRepo.Revoke(cred.UserID, cred.Token); err != nil {
+			log.Println("erro ao revogar token:", err)
+		}
+	}
+	middleware.ClearSessionCookie(w, middleware.IsSecureRequest(r, h.frontendURL))
+	httpx.Success(w, "Sessão encerrada.", 200)
 }
 
 type cadastroRequest struct {
@@ -389,17 +429,12 @@ func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
 
 // CheckToken handles POST /acesso/check_token
 func (h *LoginHandler) CheckToken(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(r.Header.Get("TokenUser"), ":")
-	if len(parts) < 3 {
+	cred, ok := middleware.ExtractCredentials(r)
+	if !ok {
 		httpx.Error(w, "Token inválido!", 401)
 		return
 	}
-	userID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || userID <= 0 || parts[1] == "" || parts[2] == "" {
-		httpx.Error(w, "Token inválido!", 401)
-		return
-	}
-	if _, err := h.tokenRepo.Check(userID, parts[1], parts[2]); err != nil {
+	if _, err := h.tokenRepo.Check(cred.UserID, cred.Token, cred.AppKey); err != nil {
 		if ae, ok := apperr.As(err); ok {
 			httpx.Error(w, ae.Message, ae.Status)
 		} else {
@@ -419,18 +454,13 @@ func (h *LoginHandler) CheckToken(w http.ResponseWriter, r *http.Request) {
 // session alive, without that traffic being tied to any particular
 // feature request.
 func (h *LoginHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(r.Header.Get("TokenUser"), ":")
-	if len(parts) < 3 {
-		httpx.Error(w, "Token inválido!", 401)
-		return
-	}
-	userID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || userID <= 0 || parts[1] == "" || parts[2] == "" {
+	cred, ok := middleware.ExtractCredentials(r)
+	if !ok {
 		httpx.Error(w, "Token inválido!", 401)
 		return
 	}
 
-	at, err := h.tokenRepo.Check(userID, parts[1], parts[2])
+	at, err := h.tokenRepo.Check(cred.UserID, cred.Token, cred.AppKey)
 	if err != nil {
 		if ae, ok := apperr.As(err); ok {
 			httpx.Error(w, ae.Message, ae.Status)
@@ -446,11 +476,18 @@ func (h *LoginHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		limiteMin = models.TempoLimiteLongoAPIMinutes
 	}
 
-	httpx.JSON(w, 200, map[string]any{
-		"token":             at.Token,
+	resp := map[string]any{
 		"expira_em_minutos": limiteMin,
 		"renovado_em":       time.Now(),
-	})
+	}
+	if cred.FromCookie {
+		// Sessão por cookie: renova o cookie e não expõe o token no corpo.
+		middleware.SetSessionCookie(w, cred.UserID, at.Token, cred.AppKey,
+			models.IsLongToken(at.Token), middleware.IsSecureRequest(r, h.frontendURL))
+	} else {
+		resp["token"] = at.Token
+	}
+	httpx.JSON(w, 200, resp)
 }
 
 type esqueciSenhaRequest struct {

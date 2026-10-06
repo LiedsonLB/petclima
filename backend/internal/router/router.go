@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"net/url"
 
 	"github.com/liedsonlb/petsaude-clima/internal/handlers"
 	"github.com/liedsonlb/petsaude-clima/internal/mailer"
@@ -52,7 +53,7 @@ func New(d Deps) http.Handler {
 		w.Write([]byte("Api Web Leia (Go)"))
 	})
 
-	auth := middleware.RequireAuth(d.UsuarioRepo, d.TokenRepo)
+	auth := middleware.RequireAuth(d.UsuarioRepo, d.TokenRepo, d.FrontendURL)
 
 	// ---- acesso / cadastro (public) --------------------------------------
 	login := handlers.NewLoginHandler(
@@ -73,6 +74,10 @@ func New(d Deps) http.Handler {
 	// Chamado periodicamente (ou ao voltar o foco na aba) pelo frontend
 	// para renovar a sessão automaticamente, sem exigir novo login.
 	mux.HandleFunc("POST /acesso/refresh-token", login.RefreshToken)
+	// Sessão por cookie HttpOnly: /acesso/me devolve o usuário logado (e
+	// renova o cookie) e /acesso/logout revoga o token e apaga o cookie.
+	mux.Handle("GET /acesso/me", auth(http.HandlerFunc(login.Me)))
+	mux.Handle("POST /acesso/logout", auth(http.HandlerFunc(login.Logout)))
 	mux.HandleFunc("POST /acesso/esqueci-senha", login.EsqueciSenha)
 	mux.HandleFunc("POST /acesso/redefinir-senha", login.RedefinirSenha)
 	mux.HandleFunc("POST /acesso/confirmar-email", login.ConfirmarEmail)
@@ -148,14 +153,28 @@ func New(d Deps) http.Handler {
 	painel := handlers.NewPainelHandler(d.ComunidadeRepo, d.CanalRepo, d.SalaRepo, d.LiveKitURL, d.LiveKitAPIKey, d.LiveKitAPISecret)
 	mux.Handle("GET /painel/atividades", auth(http.HandlerFunc(painel.Atividades)))
 
-	return withCORS(mux)
+	return withCORS(mux, d.FrontendURL)
 }
 
-func withCORS(next http.Handler) http.Handler {
+// withCORS só libera a origem do próprio frontend (FRONTEND_URL) e permite
+// credenciais (cookies). Em produção o nginx serve site e API no mesmo
+// domínio (/api), então o navegador nem precisa de CORS; isto cobre o
+// desenvolvimento local e qualquer frontend em domínio separado.
+// Não use "*" aqui: com cookies o navegador recusa wildcard.
+func withCORS(next http.Handler, frontendURL string) http.Handler {
+	allowed := map[string]bool{}
+	if u, err := url.Parse(frontendURL); err == nil && u.Scheme != "" && u.Host != "" {
+		allowed[u.Scheme+"://"+u.Host] = true
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, AppKey, TokenUser")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		if origin := r.Header.Get("Origin"); allowed[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, AppKey, TokenUser")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Add("Vary", "Origin")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
