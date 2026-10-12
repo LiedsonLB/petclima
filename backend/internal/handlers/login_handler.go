@@ -16,13 +16,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liedsonlb/petsaude-clima/internal/apperr"
-	"github.com/liedsonlb/petsaude-clima/internal/httpx"
-	"github.com/liedsonlb/petsaude-clima/internal/mailer"
-	"github.com/liedsonlb/petsaude-clima/internal/middleware"
-	"github.com/liedsonlb/petsaude-clima/internal/models"
-	"github.com/liedsonlb/petsaude-clima/internal/queue"
-	"github.com/liedsonlb/petsaude-clima/internal/repository"
+	"github.com/petsaude/petclima-backend/internal/apperr"
+	"github.com/petsaude/petclima-backend/internal/httpx"
+	"github.com/petsaude/petclima-backend/internal/mailer"
+	"github.com/petsaude/petclima-backend/internal/middleware"
+	"github.com/petsaude/petclima-backend/internal/models"
+	"github.com/petsaude/petclima-backend/internal/queue"
+	"github.com/petsaude/petclima-backend/internal/repository"
 )
 
 type LoginHandler struct {
@@ -68,7 +68,6 @@ type loginRequest struct {
 	Email     string `json:"email"`
 	Senha     string `json:"senha"`
 	LongToken string `json:"long_token"`
-	Perfil    int    `json:"perfil"`
 }
 
 func md5hex(s string) string {
@@ -154,6 +153,34 @@ func (h *LoginHandler) verifyVerificationToken(email, token string) (bool, error
 	return hmac.Equal(tokenBytes, expectedToken), nil
 }
 
+// logoURL aponta para o ícone do PET-Saúde Clima servido pelo frontend.
+func (h *LoginHandler) logoURL() string {
+	return h.frontendURL + "/petsaudeclima_icon.png"
+}
+
+// linkComQuery monta um link do frontend com e-mail/token devidamente
+// escapados (e-mails com "+" e tokens com ":" quebrariam a URL sem isso).
+func (h *LoginHandler) linkComQuery(path, email, token string) string {
+	q := url.Values{}
+	q.Set("email", email)
+	q.Set("token", token)
+	return fmt.Sprintf("%s%s?%s", h.frontendURL, path, q.Encode())
+}
+
+// enviarEmailJob publica um job de e-mail na fila; retorna false se o
+// RabbitMQ não estiver disponível (o chamador decide o fallback).
+func (h *LoginHandler) enviarEmailJob(job models.EmailJob) bool {
+	if h.rabbit == nil {
+		return false
+	}
+	job.CriadoEm = time.Now()
+	if err := h.rabbit.Publish(queue.QueueEmail, job); err != nil {
+		log.Println("erro ao publicar e-mail na fila:", err)
+		return false
+	}
+	return true
+}
+
 // sendVerificationEmail envia e-mail de confirmação usando tokens auto-validáveis
 // SEM tabela email_verification_tokens
 func (h *LoginHandler) sendVerificationEmail(email, nome string) error {
@@ -162,33 +189,29 @@ func (h *LoginHandler) sendVerificationEmail(email, nome string) error {
 		return err
 	}
 
-	link := fmt.Sprintf("%s/confirmar-email?email=%s&token=%s", h.frontendURL, url.QueryEscape(email), url.QueryEscape(token))
+	link := h.linkComQuery("/confirmar-email", email, token)
 
-	dados := map[string]string{
-		"nome_destinatario": nome,
-		"link_verificacao":  link,
-		"logo_url":          h.frontendURL + "/petsaudeclima_icon.png",
+	if h.enviarEmailJob(models.EmailJob{
+		Tipo:         models.EmailTipoVerificacaoEmail,
+		Destinatario: email,
+		NomeDestino:  nome,
+		Assunto:      "Confirme seu e-mail — " + h.appName,
+		Dados: map[string]string{
+			"nome_destinatario": nome,
+			"link_verificacao":  link,
+			"nome_app":          h.appName,
+			"logo_url":          h.logoURL(),
+		},
+	}) {
+		return nil
 	}
-	assunto := "Confirme seu e-mail — " + h.appName
+	log.Println("RabbitMQ indisponível, tentando envio direto do e-mail de verificação")
 
-	if h.rabbit != nil {
-		job := models.EmailJob{
-			Tipo:         models.EmailTipoVerificacaoEmail,
-			Destinatario: email,
-			NomeDestino:  nome,
-			Assunto:      assunto,
-			Dados:        dados,
-			CriadoEm:     time.Now(),
-		}
-		if err := h.rabbit.Publish(queue.QueueEmail, job); err == nil {
-			return nil
-		} else {
-			log.Println("erro ao publicar e-mail de verificação na fila, tentando envio direto:", err)
-		}
-	}
-
-	// Fallback: envia direto, mas com o MESMO template HTML do worker.
-	return h.mailer.SendTemplate(models.EmailTipoVerificacaoEmail, email, assunto, dados)
+	body := fmt.Sprintf(
+		"Olá, %s!\n\nPara ativar sua conta no %s, confirme seu e-mail clicando no link abaixo (válido por 48 horas):\n\n%s\n\nSe você não fez este cadastro, ignore este e-mail.",
+		nome, h.appName, link,
+	)
+	return h.mailer.Send(email, "Confirme seu e-mail — "+h.appName, body)
 }
 
 // Run handles POST /acesso/login, mirroring LoginController::run.
@@ -221,7 +244,8 @@ func (h *LoginHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	usuario, err := h.usuarioRepo.FindByEmail(req.Email, req.Perfil)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	usuario, err := h.usuarioRepo.FindByEmail(req.Email)
 	if err != nil {
 		log.Println(err)
 		httpx.Error(w, "Erro interno.", 500)
@@ -251,76 +275,60 @@ func (h *LoginHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A sessão vai em cookie HttpOnly (JavaScript não consegue ler); o token
-	// NÃO é devolvido no corpo da resposta.
-	middleware.SetSessionCookie(w, usuario.ID, at.Token, app.Codigo,
-		models.IsLongToken(at.Token), middleware.IsSecureRequest(r, h.frontendURL))
-	httpx.JSON(w, 200, sessaoUsuarioPayload(usuario))
-}
-
-// sessaoUsuarioPayload é o recorte público do usuário devolvido no login e em
-// GET /acesso/me (nunca inclui senha nem token).
-func sessaoUsuarioPayload(u *models.Usuario) map[string]any {
-	return map[string]any{
-		"id":                u.ID,
-		"nome":              u.Nome,
-		"email":             u.Email,
-		"foto":              u.Foto,
-		"banner":            u.Banner,
-		"moldura":           u.Moldura,
-		"perfil":            u.Perfil,
-		"perfil_label":      models.PerfilLabel(u.Perfil),
-		"instituicao":       u.Instituicao,
-		"municipio":         u.Municipio,
-		"profissao":         u.Profissao,
-		"email_verified_at": u.EmailVerifiedAt,
-		"aluno_id":          u.AlunoID,
+	// Métricas do Painel: cada login vira uma linha em acesso_log e atualiza
+	// "visto por último". Falhas aqui não devem impedir o login.
+	if err := h.usuarioRepo.RegistrarAcesso(usuario.ID, clientIP(r)); err != nil {
+		log.Println("erro ao registrar acesso:", err)
 	}
+	_ = h.usuarioRepo.TouchAcesso(usuario.ID)
+
+	httpx.JSON(w, 200, loginResponse{Usuario: usuario, Token: at.Token})
 }
 
-// Me handles GET /acesso/me (atrás do RequireAuth): devolve o usuário da
-// sessão atual. O frontend chama ao abrir o site para saber se há sessão
-// válida — já que não guarda mais nada no navegador — e, para sessões de
-// "manter conectado", aproveita para renovar o cookie (30 dias a partir de
-// agora).
+// loginResponse devolve o perfil completo (papel, município, GAT...) junto
+// com o token, para o frontend montar o dashboard conforme o perfil sem uma
+// segunda chamada.
+type loginResponse struct {
+	*models.Usuario
+	Token string `json:"token"`
+}
+
+// Me handles GET /acesso/me — devolve o usuário do token atual.
 func (h *LoginHandler) Me(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r)
 	if u == nil {
-		httpx.Error(w, "Não autenticado!", 401)
+		httpx.Error(w, "Token inválido!", 401)
 		return
 	}
-	if cred, ok := middleware.ExtractCredentials(r); ok && cred.FromCookie && models.IsLongToken(cred.Token) {
-		middleware.SetSessionCookie(w, cred.UserID, cred.Token, cred.AppKey, true,
-			middleware.IsSecureRequest(r, h.frontendURL))
-	}
-	httpx.JSON(w, 200, sessaoUsuarioPayload(u))
-}
-
-// Logout handles POST /acesso/logout (atrás do RequireAuth): invalida o
-// token no banco e apaga o cookie. Sem isso, "sair" só limparia o navegador
-// e o token continuaria válido no servidor.
-func (h *LoginHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	if cred, ok := middleware.ExtractCredentials(r); ok {
-		if err := h.tokenRepo.Revoke(cred.UserID, cred.Token); err != nil {
-			log.Println("erro ao revogar token:", err)
-		}
-	}
-	middleware.ClearSessionCookie(w, middleware.IsSecureRequest(r, h.frontendURL))
-	httpx.Success(w, "Sessão encerrada.", 200)
+	httpx.JSON(w, 200, u)
 }
 
 type cadastroRequest struct {
-	Nome        string `json:"nome"`
-	Email       string `json:"email"`
-	Senha       string `json:"senha"`
-	Instituicao string `json:"instituicao"`
-	Municipio   string `json:"municipio"`
-	Profissao   string `json:"profissao"`
-	Perfil      int    `json:"perfil"`
-	RunLogin    string `json:"run_login"`
+	Nome          string `json:"nome"`
+	Email         string `json:"email"`
+	Senha         string `json:"senha"`
+	RunLogin      string `json:"run_login"`
+	CPF           string `json:"cpf"`
+	Telefone      string `json:"telefone"`
+	Instituicao   string `json:"instituicao"`
+	CursoFormacao string `json:"curso_formacao"`
+	Papel         string `json:"papel"`
+	MunicipioID   *int64 `json:"municipio_id"`
+	AceiteTermos  bool   `json:"aceite_termos"`
 }
 
-func strPtrOrNil(s string) *string {
+// onlyDigits mantém só os dígitos de s (usado para normalizar CPF/telefone).
+func onlyDigits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func strPtr(s string) *string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil
@@ -328,13 +336,11 @@ func strPtrOrNil(s string) *string {
 	return &s
 }
 
-// CadastroAluno handles POST /cadastro — cria um usuário do portal
-// PET-Saúde Clima com os dados institucionais informados no formulário de
-// Cadastro.tsx (instituição, município, profissão/vínculo e perfil).
-// Perfis restritos (Preceptor, Coordenador, Admin) não podem ser
-// autoescolhidos aqui — exigem convite institucional — então qualquer
-// valor fora de models.PerfisAutoCadastro cai para PerfilEstudante.
-func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
+// Cadastro handles POST /cadastro — autocadastro público de profissionais,
+// estudantes, pesquisadores, gestores e comunidade. Papéis institucionais
+// (preceptor, coordenador, admin) NÃO podem ser escolhidos aqui: só um
+// administrador os atribui depois (convite institucional).
+func (h *LoginHandler) Cadastro(w http.ResponseWriter, r *http.Request) {
 	var req cadastroRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.Error(w, "Requisição inválida.", 422)
@@ -353,9 +359,22 @@ func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	perfil := req.Perfil
-	if !models.PerfisAutoCadastro[perfil] {
-		perfil = models.PerfilEstudante
+	papel := models.Papel(strings.ToLower(strings.TrimSpace(req.Papel)))
+	if papel == "" {
+		papel = models.PapelComunidade
+	}
+	if !models.PapeisAutoCadastro[papel] {
+		httpx.Error(w, "Perfil não permitido no cadastro público. Perfis institucionais são atribuídos pela coordenação.", 422)
+		return
+	}
+	cpf := onlyDigits(req.CPF)
+	if cpf != "" && len(cpf) != 11 {
+		httpx.ErrorWithFields(w, "Dados inválidos.", map[string]string{"cpf": "deve ter 11 dígitos"}, 422)
+		return
+	}
+	if !req.AceiteTermos {
+		httpx.Error(w, "É necessário aceitar os Termos de Uso e a Política de Privacidade.", 422)
+		return
 	}
 
 	appKey := r.Header.Get("AppKey")
@@ -375,12 +394,14 @@ func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, err := h.usuarioRepo.Create(&models.Usuario{
-		Nome:        req.Nome,
-		Email:       req.Email,
-		Perfil:      perfil,
-		Instituicao: strPtrOrNil(req.Instituicao),
-		Municipio:   strPtrOrNil(req.Municipio),
-		Profissao:   strPtrOrNil(req.Profissao),
+		Nome:          req.Nome,
+		Email:         req.Email,
+		Papel:         papel,
+		CPF:           strPtr(cpf),
+		Telefone:      strPtr(onlyDigits(req.Telefone)),
+		Instituicao:   strPtr(req.Instituicao),
+		CursoFormacao: strPtr(req.CursoFormacao),
+		MunicipioID:   req.MunicipioID,
 	}, req.Senha)
 	if err != nil {
 		if ae, ok := apperr.As(err); ok {
@@ -416,25 +437,22 @@ func (h *LoginHandler) CadastroAluno(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.JSON(w, 201, map[string]any{
-		"id": created.ID, "nome": created.Nome, "email": created.Email,
-		"foto": created.Foto, "perfil": created.Perfil,
-		"perfil_label": models.PerfilLabel(created.Perfil),
-		"instituicao":  created.Instituicao,
-		"municipio":    created.Municipio,
-		"profissao":    created.Profissao,
-		"token":        at.Token,
-	})
+	httpx.JSON(w, 201, loginResponse{Usuario: created, Token: at.Token})
 }
 
 // CheckToken handles POST /acesso/check_token
 func (h *LoginHandler) CheckToken(w http.ResponseWriter, r *http.Request) {
-	cred, ok := middleware.ExtractCredentials(r)
-	if !ok {
+	parts := strings.Split(r.Header.Get("TokenUser"), ":")
+	if len(parts) < 3 {
 		httpx.Error(w, "Token inválido!", 401)
 		return
 	}
-	if _, err := h.tokenRepo.Check(cred.UserID, cred.Token, cred.AppKey); err != nil {
+	userID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || userID <= 0 || parts[1] == "" || parts[2] == "" {
+		httpx.Error(w, "Token inválido!", 401)
+		return
+	}
+	if _, err := h.tokenRepo.Check(userID, parts[1], parts[2]); err != nil {
 		if ae, ok := apperr.As(err); ok {
 			httpx.Error(w, ae.Message, ae.Status)
 		} else {
@@ -454,13 +472,18 @@ func (h *LoginHandler) CheckToken(w http.ResponseWriter, r *http.Request) {
 // session alive, without that traffic being tied to any particular
 // feature request.
 func (h *LoginHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
-	cred, ok := middleware.ExtractCredentials(r)
-	if !ok {
+	parts := strings.Split(r.Header.Get("TokenUser"), ":")
+	if len(parts) < 3 {
+		httpx.Error(w, "Token inválido!", 401)
+		return
+	}
+	userID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || userID <= 0 || parts[1] == "" || parts[2] == "" {
 		httpx.Error(w, "Token inválido!", 401)
 		return
 	}
 
-	at, err := h.tokenRepo.Check(cred.UserID, cred.Token, cred.AppKey)
+	at, err := h.tokenRepo.Check(userID, parts[1], parts[2])
 	if err != nil {
 		if ae, ok := apperr.As(err); ok {
 			httpx.Error(w, ae.Message, ae.Status)
@@ -476,18 +499,11 @@ func (h *LoginHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		limiteMin = models.TempoLimiteLongoAPIMinutes
 	}
 
-	resp := map[string]any{
+	httpx.JSON(w, 200, map[string]any{
+		"token":             at.Token,
 		"expira_em_minutos": limiteMin,
 		"renovado_em":       time.Now(),
-	}
-	if cred.FromCookie {
-		// Sessão por cookie: renova o cookie e não expõe o token no corpo.
-		middleware.SetSessionCookie(w, cred.UserID, at.Token, cred.AppKey,
-			models.IsLongToken(at.Token), middleware.IsSecureRequest(r, h.frontendURL))
-	} else {
-		resp["token"] = at.Token
-	}
-	httpx.JSON(w, 200, resp)
+	})
 }
 
 type esqueciSenhaRequest struct {
@@ -512,7 +528,8 @@ func (h *LoginHandler) EsqueciSenha(w http.ResponseWriter, r *http.Request) {
 
 	const generic = "Se este e-mail estiver cadastrado, enviaremos um link para redefinir a senha."
 
-	usuario, err := h.usuarioRepo.FindByEmail(req.Email, 0)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	usuario, err := h.usuarioRepo.FindByEmail(req.Email)
 	if err != nil {
 		log.Println(err)
 		httpx.Error(w, "Erro interno.", 500)
@@ -535,34 +552,26 @@ func (h *LoginHandler) EsqueciSenha(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link := fmt.Sprintf("%s/redefinir-senha?email=%s&token=%s", h.frontendURL, url.QueryEscape(req.Email), url.QueryEscape(token))
+	link := h.linkComQuery("/redefinir-senha", req.Email, token)
 
-	dados := map[string]string{
-		"nome_destinatario": usuario.Nome,
-		"link_redefinicao":  link,
-		"logo_url":          h.frontendURL + "/petsaudeclima_icon.png",
-	}
-	assunto := "Redefinição de senha — " + h.appName
-
-	sent := false
-	if h.rabbit != nil {
-		emailJob := models.EmailJob{
-			Tipo:         models.EmailTipoRedefinirSenha,
-			Destinatario: req.Email,
-			NomeDestino:  usuario.Nome,
-			Assunto:      assunto,
-			Dados:        dados,
-			CriadoEm:     time.Now(),
-		}
-		if err := h.rabbit.Publish(queue.QueueEmail, emailJob); err != nil {
-			log.Println("erro ao publicar e-mail de redefinição na fila:", err)
-		} else {
-			sent = true
-		}
-	}
+	sent := h.enviarEmailJob(models.EmailJob{
+		Tipo:         models.EmailTipoRedefinirSenha,
+		Destinatario: req.Email,
+		NomeDestino:  usuario.Nome,
+		Assunto:      "Redefinição de senha — " + h.appName,
+		Dados: map[string]string{
+			"nome_destinatario": usuario.Nome,
+			"link_redefinicao":  link,
+			"nome_app":          h.appName,
+			"logo_url":          h.logoURL(),
+		},
+	})
 	if !sent {
-		// Fallback: envia direto, mas com o MESMO template HTML do worker.
-		if err := h.mailer.SendTemplate(models.EmailTipoRedefinirSenha, req.Email, assunto, dados); err != nil {
+		body := fmt.Sprintf(
+			"Olá, %s!\n\nRecebemos um pedido para redefinir sua senha no %s.\nClique no link abaixo para escolher uma nova senha (válido por 1 hora):\n\n%s\n\nSe você não pediu isso, pode ignorar este e-mail.",
+			usuario.Nome, h.appName, link,
+		)
+		if err := h.mailer.Send(req.Email, "Redefinição de senha — "+h.appName, body); err != nil {
 			log.Println(err)
 		}
 	}
@@ -618,27 +627,15 @@ type confirmarEmailRequest struct {
 // Agora valida o token SEM banco de dados e atualiza apenas email_verified_at
 // ConfirmarEmail handles POST /acesso/confirmar-email
 func (h *LoginHandler) ConfirmarEmail(w http.ResponseWriter, r *http.Request) {
-	// LOG DA REQUISIÇÃO RECEBIDA
-	log.Printf("📨 Recebida requisição POST /acesso/confirmar-email")
-	log.Printf("📨 Headers: %v", r.Header)
-
 	var req confirmarEmailRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("❌ Erro ao decodificar JSON: %v", err)
 		httpx.Error(w, "Dados inválidos.", 422)
 		return
 	}
-
-	log.Printf("📧 ConfirmarEmail - Email: %s", req.Email)
-	log.Printf("📧 ConfirmarEmail - Token: %s", req.Token)
-	log.Printf("📧 ConfirmarEmail - Token length: %d", len(req.Token))
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 
 	// Valida o token sem banco de dados
 	ok, err := h.verifyVerificationToken(req.Email, req.Token)
-
-	// LOG DO RESULTADO
-	log.Printf("📧 ConfirmarEmail - Resultado: ok=%v, err=%v", ok, err)
-
 	if err != nil {
 		log.Println(err)
 		httpx.Error(w, "Erro interno.", 500)
@@ -649,11 +646,32 @@ func (h *LoginHandler) ConfirmarEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Descobre se esta é a primeira confirmação antes de gravar a data.
+	usuario, _ := h.usuarioRepo.FindByEmail(req.Email)
+	primeiraConfirmacao := usuario != nil && usuario.EmailVerifiedAt == nil
+
 	// Atualiza apenas o campo email_verified_at com a data/hora atual
 	if err := h.usuarioRepo.SetEmailVerifiedByEmail(req.Email); err != nil {
 		log.Println(err)
 		httpx.Error(w, "Erro interno.", 500)
 		return
+	}
+
+	// Boas-vindas: só a primeira confirmação dispara o e-mail (evita spam
+	// se a pessoa clicar no link mais de uma vez).
+	if primeiraConfirmacao {
+		h.enviarEmailJob(models.EmailJob{
+			Tipo:         models.EmailTipoBoasVindas,
+			Destinatario: usuario.Email,
+			NomeDestino:  usuario.Nome,
+			Assunto:      "Bem-vindo(a) ao " + h.appName,
+			Dados: map[string]string{
+				"nome_destinatario": usuario.Nome,
+				"link_login":        h.frontendURL + "/login",
+				"nome_app":          h.appName,
+				"logo_url":          h.logoURL(),
+			},
+		})
 	}
 
 	httpx.Success(w, "E-mail confirmado com sucesso! Você já pode entrar.", 200)
@@ -674,7 +692,8 @@ func (h *LoginHandler) ReenviarConfirmacao(w http.ResponseWriter, r *http.Reques
 
 	const generic = "Se este e-mail estiver cadastrado e pendente de confirmação, reenviaremos o link."
 
-	usuario, err := h.usuarioRepo.FindByEmail(req.Email, 0)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	usuario, err := h.usuarioRepo.FindByEmail(req.Email)
 	if err != nil {
 		log.Println(err)
 		httpx.Error(w, "Erro interno.", 500)

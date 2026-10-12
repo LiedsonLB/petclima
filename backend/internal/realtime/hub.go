@@ -4,7 +4,7 @@ package realtime
 import (
 	"sync"
 
-	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/petsaude/petclima-backend/internal/models"
 )
 
 type subscriber chan models.ProgressoEvento

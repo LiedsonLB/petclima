@@ -3,7 +3,7 @@
 // produz — isso evita puxar o SDK oficial como dependência só para assinar
 // um JWT: é um HS256 comum com um claim "video" contendo os grants.
 //
-// Referência do formato (mesmo usado no NeoMeet, via livekit-server-sdk JS):
+// Referência do formato (o mesmo produzido pelo livekit-server-sdk JS):
 //
 //	{
 //	  "exp": ...,

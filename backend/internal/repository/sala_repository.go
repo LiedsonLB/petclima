@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/liedsonlb/petsaude-clima/internal/apperr"
-	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/petsaude/petclima-backend/internal/apperr"
+	"github.com/petsaude/petclima-backend/internal/models"
 )
 
 type SalaRepository struct {
@@ -18,11 +18,11 @@ func NewSalaRepository(db *sql.DB) *SalaRepository {
 	return &SalaRepository{db: db}
 }
 
-const salaColumns = "id, nome, codigo, tipo, descricao, categoria, genero_textual_id, criado_por, ativa, created_at, updated_at, deleted_at"
+const salaColumns = "id, nome, codigo, tipo, descricao, atividade_id, criado_por, ativa, created_at, updated_at, deleted_at"
 
 func scanSala(row interface{ Scan(...any) error }) (*models.Sala, error) {
 	s := &models.Sala{}
-	err := row.Scan(&s.ID, &s.Nome, &s.Codigo, &s.Tipo, &s.Descricao, &s.Categoria, &s.GeneroTextualID, &s.CriadoPor, &s.Ativa,
+	err := row.Scan(&s.ID, &s.Nome, &s.Codigo, &s.Tipo, &s.Descricao, &s.AtividadeID, &s.CriadoPor, &s.Ativa,
 		&s.CreatedAt, &s.UpdatedAt, &s.DeletedAt)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,8 @@ func randomCodigo() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// All lista as salas ativas (não deletadas).
+// All lista as salas não deletadas, opcionalmente filtradas por tipo e/ou
+// só as ativas.
 func (r *SalaRepository) All(tipo string, onlyAtivas bool) ([]*models.Sala, error) {
 	where := "deleted_at IS NULL"
 	args := []any{}
@@ -90,14 +91,15 @@ func (r *SalaRepository) FindByCodigo(codigo string) (*models.Sala, error) {
 	return s, nil
 }
 
-// Create cria uma sala/comunidade. generoTextualID é mantido apenas por
-// compatibilidade com o schema antigo e não é mais usado pelo PET-Saúde Clima
-// (sempre nil aqui).
-func (r *SalaRepository) Create(nome, tipo string, descricao, categoria *string, criadoPor int64) (*models.Sala, error) {
+// Create cria uma sala de videoconferência. atividadeID é opcional e liga a
+// sala a uma oficina/capacitação remota ou híbrida.
+func (r *SalaRepository) Create(nome, tipo string, descricao *string, atividadeID *int64, criadoPor int64) (*models.Sala, error) {
 	if nome == "" {
 		return nil, apperr.New("Nome da sala é obrigatório.", 422)
 	}
-	if tipo != models.SalaTipoReuniao && tipo != models.SalaTipoProducao {
+	switch tipo {
+	case models.SalaTipoReuniao, models.SalaTipoOficina, models.SalaTipoTelessaude:
+	default:
 		tipo = models.SalaTipoReuniao
 	}
 	codigo, err := randomCodigo()
@@ -106,9 +108,9 @@ func (r *SalaRepository) Create(nome, tipo string, descricao, categoria *string,
 	}
 
 	res, err := r.db.Exec(
-		`INSERT INTO sala (nome, codigo, tipo, descricao, categoria, criado_por, ativa, created_at, updated_at)
+		`INSERT INTO sala (nome, codigo, tipo, descricao, atividade_id, criado_por, ativa, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-		nome, codigo, tipo, descricao, categoria, criadoPor,
+		nome, codigo, tipo, descricao, atividadeID, criadoPor,
 	)
 	if err != nil {
 		return nil, err

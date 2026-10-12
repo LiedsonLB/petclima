@@ -1,26 +1,22 @@
-// Package queue encapsula a conexão com o RabbitMQ usada pelos workers de
-// email e de exportação de produções textuais. Segue o mesmo padrão já usado
-// no projeto Mensageria (canal isolado por publish/consume, filas duráveis).
+// Package queue encapsula a conexão com o RabbitMQ usada pelo worker de
+// e-mail do PET-Saúde Clima (canal isolado por publish/consume, filas
+// duráveis).
 package queue
 
 import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"sync"
 
 	amqp "github.com/streadway/amqp"
 )
 
 // Nomes das filas usadas pelo PET-Saúde Clima.
 const (
-	QueueEmail            = "petsaude.emails"
-	QueueExport           = "petsaude.exportacoes"
-	QueueExportConcluida  = "petsaude.exportacoes.concluidas"
+	QueueEmail = "petclima.emails"
 )
 
 type RabbitMQ struct {
-	mu   sync.Mutex
 	conn *amqp.Connection
 	ch   *amqp.Channel
 	url  string
@@ -55,19 +51,6 @@ func NewRabbitMQ(url string) (*RabbitMQ, error) {
 }
 
 func (r *RabbitMQ) newChannel() (*amqp.Channel, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Se a conexão caiu (restart do broker, timeout de rede), reconecta em vez
-	// de falhar para sempre — antes disso a API caía no envio direto (texto puro).
-	if r.conn == nil || r.conn.IsClosed() {
-		conn, err := amqp.Dial(r.url)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao reconectar RabbitMQ: %w", err)
-		}
-		r.conn = conn
-		log.Println("🔄 RabbitMQ reconectado")
-	}
 	return r.conn.Channel()
 }
 
@@ -75,7 +58,7 @@ func (r *RabbitMQ) newChannel() (*amqp.Channel, error) {
 // vez na conexão tanto pela API (produtora) quanto pelos workers
 // (consumidores), então a ordem de start não importa.
 func (r *RabbitMQ) setupQueues() error {
-	for _, q := range []string{QueueEmail, QueueExport, QueueExportConcluida} {
+	for _, q := range []string{QueueEmail} {
 		if _, err := r.ch.QueueDeclare(q, true, false, false, false, nil); err != nil {
 			return err
 		}

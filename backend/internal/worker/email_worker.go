@@ -4,14 +4,14 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/liedsonlb/petsaude-clima/internal/models"
-	"github.com/liedsonlb/petsaude-clima/internal/queue"
-	"github.com/liedsonlb/petsaude-clima/internal/service"
+	"github.com/petsaude/petclima-backend/internal/models"
+	"github.com/petsaude/petclima-backend/internal/queue"
+	"github.com/petsaude/petclima-backend/internal/service"
 )
-// StartEmailWorker consome a fila webleia.emails e envia cada EmailJob por
-// SMTP (com o template HTML correspondente a job.Tipo). Mesma estrutura de
-// consumo usada no worker-email do projeto Mensageria, adaptada para
-// mensagens genéricas em vez de só "danfe pronta".
+
+// StartEmailWorker consome a fila petclima.emails e envia cada EmailJob por
+// SMTP (com o template HTML correspondente a job.Tipo — ver
+// templates/email/).
 func StartEmailWorker(rabbit *queue.RabbitMQ, emailService *service.EmailService) {
 	log.Println("📧 Worker de Email: conectando à fila", queue.QueueEmail)
 

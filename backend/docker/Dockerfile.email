@@ -34,5 +34,5 @@ COPY templates ./templates
 RUN chown -R appuser:appuser /app
 USER appuser
 
-# Sem servidor HTTP — só consome a fila "webleia.emails" do RabbitMQ.
+# Sem servidor HTTP — só consome a fila "petclima.emails" do RabbitMQ.
 ENTRYPOINT ["./worker-email"]

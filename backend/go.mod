@@ -1,4 +1,4 @@
-module github.com/liedsonlb/petsaude-clima
+module github.com/petsaude/petclima-backend
 
 go 1.26.1
 

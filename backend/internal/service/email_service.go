@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/liedsonlb/petsaude-clima/internal/config"
-	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/petsaude/petclima-backend/internal/config"
+	"github.com/petsaude/petclima-backend/internal/models"
 )
 
 type EmailService struct {
@@ -49,11 +49,6 @@ func (e *EmailService) Enviar(job models.EmailJob) error {
 		data["nome_destinatario"] = job.NomeDestino
 	}
 	data["assunto"] = job.Assunto
-	// Garante que todo e-mail tenha a logo do PET-Saúde Clima, mesmo quando
-	// quem disparou o job (job.Dados) não passou logo_url explicitamente.
-	if _, ok := data["logo_url"]; !ok {
-		data["logo_url"] = e.cfg.FrontendURL + "/petsaudeclima_icon.png"
-	}
 
 	var htmlBody bytes.Buffer
 	if err := tmpl.Execute(&htmlBody, data); err != nil {
@@ -75,10 +70,10 @@ func (e *EmailService) Enviar(job models.EmailJob) error {
 // anexos em base64. Escrito à mão (sem lib de mail) pra manter o worker sem
 // dependências extras — é só texto MIME, não tem mistério.
 func buildMIMEMessage(cfg *config.Config, destino, assunto, htmlBody string, anexos []models.EmailAnexo) ([]byte, error) {
-	boundary := "webleia-boundary-42"
+	boundary := "petclima-boundary-42"
 	var buf bytes.Buffer
 
-	// fmt.Fprintf(&buf, "From: %s <%s>\r\n", cfg.SMTPFromName, cfg.SMTPFrom)
+	fmt.Fprintf(&buf, "From: %s <%s>\r\n", mime.QEncoding.Encode("UTF-8", cfg.AppName), cfg.SMTPFrom)
 	fmt.Fprintf(&buf, "To: %s\r\n", destino)
 	fmt.Fprintf(&buf, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", assunto))
 	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")

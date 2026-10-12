@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/petsaude/petclima-backend/internal/models"
 )
 
 type AplicacaoRepository struct {

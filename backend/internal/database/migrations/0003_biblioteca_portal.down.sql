@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS `noticia`;
+DROP TABLE IF EXISTS `material`;

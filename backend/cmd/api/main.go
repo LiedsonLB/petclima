@@ -8,18 +8,17 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/liedsonlb/petsaude-clima/internal/config"
-	"github.com/liedsonlb/petsaude-clima/internal/database"
-	"github.com/liedsonlb/petsaude-clima/internal/mailer"
-	"github.com/liedsonlb/petsaude-clima/internal/queue"
-	"github.com/liedsonlb/petsaude-clima/internal/realtime"
-	"github.com/liedsonlb/petsaude-clima/internal/repository"
-	"github.com/liedsonlb/petsaude-clima/internal/router"
+	"github.com/petsaude/petclima-backend/internal/config"
+	"github.com/petsaude/petclima-backend/internal/database"
+	"github.com/petsaude/petclima-backend/internal/mailer"
+	"github.com/petsaude/petclima-backend/internal/queue"
+	"github.com/petsaude/petclima-backend/internal/repository"
+	"github.com/petsaude/petclima-backend/internal/router"
 )
 
 func main() {
 	if err := godotenv.Load(); err != nil {
-		log.Println("Erro ao carregar .env:", err)
+		log.Println("Nenhum .env encontrado, seguindo com variáveis de ambiente do sistema:", err)
 	}
 
 	cfg := config.Load()
@@ -38,68 +37,53 @@ func main() {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
-	// ---- INICIALIZAR SERVIÇOS PARA SALAS E EXPORTAÇÃO ----
-
-	// 2. Conectar ao RabbitMQ (best-effort — a API funciona sem fila,
-	// o mailer cai para envio direto/log quando ela não está disponível).
+	// RabbitMQ é best-effort: a API e o e-mail continuam funcionando sem
+	// fila (o mailer cai para envio direto/log, ver internal/mailer).
 	var rabbitMQ *queue.RabbitMQ
 	if cfg.RabbitURL != "" {
 		if conn, err := connectRabbitWithRetry(cfg.RabbitURL, 5); err != nil {
 			log.Printf("⚠️  RabbitMQ indisponível, seguindo sem fila: %v", err)
 		} else {
 			rabbitMQ = conn
+			log.Println("✅ RabbitMQ conectado")
 		}
 	} else {
-		log.Println("⚠️ RabbitMQ não configurado (RABBIT_URL vazio)")
+		log.Println("⚠️  RabbitMQ não configurado (RABBIT_URL vazio)")
 	}
 
-	// 3. Criar RealtimeHub para salas - usando NewHub() que já inicia
-	hub := realtime.NewHub() // <-- NewHub já inicia o hub, não precisa de Run()
-	log.Println("✅ RealtimeHub iniciado")
-
-	// 4. Criar repositório de salas
-	salaRepo := repository.NewSalaRepository(db)
-	log.Println("✅ SalaRepository inicializado")
-
-	// 5. Criar mailer - convertendo SMTPPort para string
 	mail := mailer.New(mailer.Config{
 		Host: cfg.SMTPHost,
-		Port: strconv.Itoa(cfg.SMTPPort), // <-- CONVERTER int PARA string
+		Port: strconv.Itoa(cfg.SMTPPort),
 		User: cfg.SMTPUser,
 		Pass: cfg.SMTPPass,
 		From: cfg.SMTPFrom,
 	})
 
 	deps := router.Deps{
-		// Repositórios existentes
-		UsuarioRepo:        repository.NewUsuarioRepository(db),
-		AplicacaoRepo:      repository.NewAplicacaoRepository(db),
-		TokenRepo:          repository.NewTokenRepository(db),
-		CidadeRepo:         repository.NewCidadeRepository(db),
-		PasswordResetRepo:  repository.NewPasswordResetRepository(db),
+		UsuarioRepo:       repository.NewUsuarioRepository(db),
+		AplicacaoRepo:     repository.NewAplicacaoRepository(db),
+		TokenRepo:         repository.NewTokenRepository(db),
+		CidadeRepo:        repository.NewCidadeRepository(db),
+		TerritorioRepo:    repository.NewTerritorioRepository(db),
+		PasswordResetRepo: repository.NewPasswordResetRepository(db),
+		CursoRepo:         repository.NewCursoRepository(db),
+		MaterialRepo:      repository.NewMaterialRepository(db),
+		NoticiaRepo:       repository.NewNoticiaRepository(db),
+		AtividadeRepo:     repository.NewAtividadeRepository(db),
+		PainelRepo:        repository.NewPainelRepository(db),
+		SalaRepo:          repository.NewSalaRepository(db),
+
 		VerificationSecret: cfg.VerificationSecret,
 
-		// ---- SALAS (LiveKit) --------------------------------------------
-		SalaRepo:         salaRepo,
-		RealtimeHub:      hub,
+		// ---- Salas virtuais (LiveKit): oficinas, telessaúde, reuniões ------
 		LiveKitAPIKey:    cfg.LiveKitAPIKey,
 		LiveKitAPISecret: cfg.LiveKitAPISecret,
 		LiveKitURL:       cfg.LiveKitURL,
 		LiveKitPublicURL: cfg.LiveKitPublicURL,
 
-		// ---- COMUNIDADES (canais estilo Discord) -------------------------
-		ComunidadeRepo:    repository.NewComunidadeRepository(db),
-		CanalRepo:         repository.NewCanalRepository(db),
-		MensagemRepo:      repository.NewMensagemRepository(db),
-		ComunidadeSomRepo: repository.NewComunidadeSomRepository(db),
-
-		// ---- EXPORTAÇÃO (RabbitMQ) ---------------------------------------
-		Rabbit: rabbitMQ,
-
-		// ---- UPLOADS (fotos/banners de usuário, ícones/banners de comunidade)
+		Rabbit:    rabbitMQ,
 		UploadDir: cfg.UploadDir,
 
-		// ---- OUTROS -----------------------------------------------------
 		Mailer:      mail,
 		FrontendURL: cfg.FrontendURL,
 		AppName:     cfg.AppName,
