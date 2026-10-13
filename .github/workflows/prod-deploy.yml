@@ -2,7 +2,7 @@ name: Deploy PET-Saúde Clima
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main ]  # ajuste para o nome real da sua branch de produção
 
 jobs:
 
@@ -33,8 +33,8 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-api:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-api:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/petclima-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/petclima-api:${{ github.sha }}
 
       # ---- Worker de e-mail -------------------------------------------
       - name: Build & push worker-email
@@ -46,8 +46,8 @@ jobs:
           cache-from: type=gha,scope=worker-email
           cache-to: type=gha,mode=max,scope=worker-email
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-worker-email:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-worker-email:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/petclima-worker-email:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/petclima-worker-email:${{ github.sha }}
 
       # ---- Frontend -----------------------------------------------------
       - name: Build & push Frontend
@@ -59,12 +59,12 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
           build-args: |
-            VITE_API_URL=/api
+            VITE_API_URL=${{ secrets.VITE_API_URL }}
             VITE_APP_KEY=${{ secrets.VITE_APP_KEY }}
-            VITE_LIVEKIT_URL=wss://petsaudeclima.prp.uespi.br/livekit
+            VITE_LIVEKIT_URL=wss://petclima.pi.gov.br/livekit
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-frontend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/petsaude-frontend:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/petclima-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/petclima-frontend:${{ github.sha }}
 
 # ==========================================================================
 # DEPLOY NO SERVIDOR (self-hosted runner)
@@ -78,21 +78,64 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---- Restaura os .env que vivem fora do workspace ----------------
-      # O checkout apaga tudo que não está no Git. Por isso os .env ficam
-      # em /opt/petsaude/ (fora do workspace) e são copiados pra dentro
-      # agora, já depois da limpeza do checkout.
-      - name: Restaurar .envs do servidor
+      # ---- Gera backend/.env a partir dos Secrets ----------------------
+      # Importante: as credenciais NÃO vão para dentro da imagem (imagens
+      # de produção às vezes acabam sendo vistas por mais gente do que
+      # deveriam, e nesse caso qualquer um com `docker pull` conseguiria ler
+      # os segredos das camadas). Em vez disso o arquivo é escrito no disco
+      # do runner e entra no container em tempo de execução via `env_file`
+      # no docker-compose.yml — o efeito prático (variáveis disponíveis
+      # dentro do container) é o mesmo, mas a imagem publicada no Docker Hub
+      # continua "limpa".
+      - name: Gerar backend/.env
         run: |
-          cp /opt/petsaude/.env ./.env
-          cp /opt/petsaude/backend.env ./backend/.env
+          cat > backend/.env <<EOF
+          APP_NAME=PET-Saúde Clima
+          PORT=8080
+          TOKEN_KEY=${{ secrets.TOKEN_KEY }}
+          APP_KEY=${{ secrets.APP_KEY }}
 
-      # ---- Atualiza IMAGE_TAG com o SHA do commit atual ----------------
-      # O .env do servidor tem IMAGE_TAG=latest como fallback; aqui
-      # sobrescrevemos com a tag exata que o build-and-push publicou.
-      - name: Atualizar IMAGE_TAG
+          DB_HOST=mysql
+          DB_PORT=3306
+          DB_DATABASE=${{ secrets.MYSQL_DATABASE }}
+          DB_USERNAME=root
+          DB_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+
+          FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+
+          RABBIT_URL=amqp://${{ secrets.RABBITMQ_DEFAULT_USER }}:${{ secrets.RABBITMQ_DEFAULT_PASS }}@rabbitmq:5672/
+
+          MAIL_MAILER=smtp
+          MAIL_HOST=${{ secrets.MAIL_HOST }}
+          MAIL_PORT=${{ secrets.MAIL_PORT }}
+          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
+          MAIL_ENCRYPTION=tls
+          MAIL_FROM_ADDRESS=${{ secrets.MAIL_FROM_ADDRESS }}
+          MAIL_FROM_NAME="PET-Saúde Clima"
+          VERIFICATION_SECRET=${{ secrets.VERIFICATION_SECRET }}
+
+          LIVEKIT_API_KEY=${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET=${{ secrets.LIVEKIT_API_SECRET }}
+          LIVEKIT_URL=wss://petclima.pi.gov.br/livekit
+          LIVEKIT_PUBLIC_URL=wss://petclima.pi.gov.br/livekit
+
+          UPLOAD_DIR=/app/uploads
+          EOF
+
+      # ---- Gera o .env de infraestrutura (variáveis do compose) --------
+      - name: Gerar .env do docker-compose
         run: |
-          sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${{ github.sha }}|" ./.env
+          cat > .env <<EOF
+          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG=${{ github.sha }}
+          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }}
+          RABBITMQ_DEFAULT_USER=${{ secrets.RABBITMQ_DEFAULT_USER }}
+          RABBITMQ_DEFAULT_PASS=${{ secrets.RABBITMQ_DEFAULT_PASS }}
+          VITE_API_URL=${{ secrets.VITE_API_URL }}
+          VITE_APP_KEY=${{ secrets.VITE_APP_KEY }}
+          EOF
 
       - name: Login DockerHub
         uses: docker/login-action@v3
@@ -101,6 +144,11 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # ---- Sobe tudo via docker compose ---------------------------------
+      # As imagens de api/worker-email/frontend já foram construídas e
+      # publicadas no job anterior com a tag ${{ github.sha }}; aqui só
+      # puxamos essa mesma tag (via IMAGE_TAG no .env) e recriamos os
+      # containers. Sem --build: se usasse, o compose ignoraria a imagem
+      # publicada e recompilaria localmente no runner.
       - name: Deploy (docker compose)
         run: |
           docker compose pull
