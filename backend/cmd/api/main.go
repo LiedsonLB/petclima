@@ -52,11 +52,12 @@ func main() {
 	}
 
 	mail := mailer.New(mailer.Config{
-		Host: cfg.SMTPHost,
-		Port: strconv.Itoa(cfg.SMTPPort),
-		User: cfg.SMTPUser,
-		Pass: cfg.SMTPPass,
-		From: cfg.SMTPFrom,
+		Host:     cfg.SMTPHost,
+		Port:     strconv.Itoa(cfg.SMTPPort),
+		User:     cfg.SMTPUser,
+		Pass:     cfg.SMTPPass,
+		From:     cfg.SMTPFrom,
+		FromName: cfg.AppName,
 	})
 
 	deps := router.Deps{
@@ -86,6 +87,7 @@ func main() {
 
 		Mailer:      mail,
 		FrontendURL: cfg.FrontendURL,
+		CORSOrigins: append([]string{cfg.FrontendURL}, cfg.CORSOrigins...),
 		AppName:     cfg.AppName,
 		TokenKey:    cfg.TokenKey,
 		AppKey:      cfg.AppKey,

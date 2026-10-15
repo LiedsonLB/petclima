@@ -152,6 +152,15 @@ func (h *UsuarioHandler) Save(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if payload.CPF != nil && *payload.CPF != "" {
+		cpf := onlyDigits(*payload.CPF)
+		if !cpfValido(cpf) {
+			httpx.ErrorWithFields(w, "Dados inválidos.", map[string]string{"cpf": "CPF inválido"}, 422)
+			return
+		}
+		payload.CPF = &cpf
+	}
+
 	papel := models.Papel(strings.ToLower(strings.TrimSpace(payload.Papel)))
 	if papel == "" {
 		papel = models.PapelComunidade
@@ -289,6 +298,15 @@ func (h *UsuarioHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		httpx.Error(w, "Requisição inválida.", 422)
 		return
+	}
+
+	if payload.CPF != nil && *payload.CPF != "" {
+		cpf := onlyDigits(*payload.CPF)
+		if !cpfValido(cpf) {
+			httpx.ErrorWithFields(w, "Dados inválidos.", map[string]string{"cpf": "CPF inválido"}, 422)
+			return
+		}
+		payload.CPF = &cpf
 	}
 
 	u := &models.Usuario{

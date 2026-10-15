@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS `atividade_inscricao` (
   CONSTRAINT `atividade_inscricao_usuario_fk` FOREIGN KEY (`usuario_id`) REFERENCES `usuario` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-ALTER TABLE `sala`
-  ADD KEY `sala_atividade_fk` (`atividade_id`),
-  ADD CONSTRAINT `sala_atividade_fk` FOREIGN KEY (`atividade_id`) REFERENCES `atividade` (`id`) ON DELETE SET NULL;
+-- Liga sala.atividade_id a atividade (idempotente: se a chave/constraint já
+-- existir de uma tentativa anterior, não repete).
+SET @ddl := (SELECT IF(COUNT(*) = 0, 'ALTER TABLE `sala` ADD KEY `sala_atividade_fk` (`atividade_id`)', 'SELECT 1') FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sala' AND INDEX_NAME = 'sala_atividade_fk');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := (SELECT IF(COUNT(*) = 0, 'ALTER TABLE `sala` ADD CONSTRAINT `sala_atividade_fk` FOREIGN KEY (`atividade_id`) REFERENCES `atividade` (`id`) ON DELETE SET NULL', 'SELECT 1') FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sala' AND CONSTRAINT_NAME = 'sala_atividade_fk');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;

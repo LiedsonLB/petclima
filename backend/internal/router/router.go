@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/petsaude/petclima-backend/internal/handlers"
 	"github.com/petsaude/petclima-backend/internal/mailer"
@@ -32,6 +33,10 @@ type Deps struct {
 	UploadDir   string
 
 	// ---- videoconferência (LiveKit) + fila de e-mails (RabbitMQ) -------
+	// CORSOrigins: origens autorizadas a chamar a API com cookie de sessão
+	// (credentials: 'include'). Com "*" o navegador recusaria o cookie.
+	CORSOrigins []string
+
 	Rabbit           *queue.RabbitMQ
 	LiveKitAPIKey    string
 	LiveKitAPISecret string
@@ -76,6 +81,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /acesso/confirmar-email", login.ConfirmarEmail)
 	mux.HandleFunc("POST /acesso/reenviar-confirmacao", login.ReenviarConfirmacao)
 	mux.Handle("GET /acesso/me", auth(http.HandlerFunc(login.Me)))
+	// Revoga o token e apaga o cookie `pet_session` (não exige sessão válida).
+	mux.HandleFunc("POST /acesso/logout", login.Logout)
 	mux.HandleFunc("POST /cadastro", login.Cadastro)
 
 	// ---- 🗺️ territórios (público) -----------------------------------------
@@ -158,12 +165,28 @@ func New(d Deps) http.Handler {
 	mux.Handle("GET /painel/resumo", auth(http.HandlerFunc(painel.Resumo)))
 	mux.Handle("GET /painel/indicadores", coord(painel.Indicadores))
 
-	return withCORS(mux)
+	return withCORS(mux, d.CORSOrigins)
 }
 
-func withCORS(next http.Handler) http.Handler {
+// withCORS libera as origens configuradas (FRONTEND_URL + CORS_ORIGINS) e
+// permite credenciais, necessário para o cookie HttpOnly de sessão quando o
+// frontend roda em outra origem (ex.: Vite em :5173 chamando a API direto).
+// Em produção o nginx serve front e API na mesma origem (/api), sem CORS.
+func withCORS(next http.Handler, origins []string) http.Handler {
+	allowed := make(map[string]bool, len(origins))
+	for _, o := range origins {
+		if o = strings.TrimRight(strings.TrimSpace(o), "/"); o != "" {
+			allowed[o] = true
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Add("Vary", "Origin")
+			if allowed[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, AppKey, TokenUser")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {

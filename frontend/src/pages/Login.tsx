@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import LegalModal, { type LegalDoc } from '../components/LegalModal';
 import { useAuth } from '../contexts/AuthContext';
-import { ApiError } from '../lib/api';
+import { mensagemDeErro } from '../lib/api';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -27,11 +27,7 @@ export default function Login() {
       await entrar(email, password, remember);
       navigate('/dashboard');
     } catch (err) {
-      if (err instanceof ApiError) {
-        setErro(err.status === 401 ? 'E-mail ou senha inválidos.' : err.message);
-      } else {
-        setErro('Não foi possível conectar ao servidor. Tente novamente.');
-      }
+      setErro(mensagemDeErro(err));
     } finally {
       setIsLoading(false);
     }

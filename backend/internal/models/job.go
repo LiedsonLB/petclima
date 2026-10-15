@@ -25,7 +25,9 @@ type EmailJob struct {
 	Assunto      string            `json:"assunto"`
 	Dados        map[string]string `json:"dados"`
 	Anexos       []EmailAnexo      `json:"anexos,omitempty"`
-	CriadoEm     time.Time         `json:"criado_em"`
+	// Tentativas conta os envios que já falharam (o worker desiste após 5).
+	Tentativas int       `json:"tentativas,omitempty"`
+	CriadoEm   time.Time `json:"criado_em"`
 }
 
 // EmailAnexo é um anexo do e-mail (ex.: certificado de conclusão de curso

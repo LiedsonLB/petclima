@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -29,6 +30,9 @@ type Config struct {
 
 	// FrontendURL is used to build links sent by e-mail (password reset).
 	FrontendURL string
+	// CORSOrigins: origens extras (separadas por vírgula em CORS_ORIGINS)
+	// além do FrontendURL, que sempre é liberado.
+	CORSOrigins []string
 
 	// ---- LiveKit (salas) ----------------------------------------------
 	LiveKitAPIKey    string
@@ -63,6 +67,16 @@ func getEnvInt(key string, fallback int) int {
 	return fallback
 }
 
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func Load() *Config {
 	liveKitURL := getEnv("LIVEKIT_URL", "wss://localhost:7880")
 	liveKitPublicURL := getEnv("LIVEKIT_PUBLIC_URL", liveKitURL)
@@ -79,6 +93,7 @@ func Load() *Config {
 		DBPassword: getEnv("DB_PASSWORD", ""),
 
 		FrontendURL: getEnv("FRONTEND_URL", "http://localhost:5173"),
+		CORSOrigins: splitCSV(getEnv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 
 		RabbitURL: getEnv("RABBIT_URL", "amqp://guest:guest@localhost:5672/"),
 

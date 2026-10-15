@@ -16,24 +16,46 @@ type ctxKey string
 
 const userCtxKey ctxKey = "usuario_session"
 
-// authenticate lê o header `TokenUser` (formato "userId:token:appKey"), valida
-// contra aplicacao_acesso_token e devolve o usuário logado. Retorna
-// (nil, erro) quando o token está ausente/inválido.
-func authenticate(r *http.Request, usuarioRepo *repository.UsuarioRepository, tokenRepo *repository.TokenRepository) (*models.Usuario, *apperr.AppError) {
-	parts := strings.Split(r.Header.Get("TokenUser"), ":")
-	if len(parts) < 3 {
-		return nil, apperr.New("Token inválido!", 401)
-	}
+// SessionCookieName é o cookie HttpOnly que guarda a sessão no navegador.
+// O frontend não enxerga o valor (só o envia com credentials: 'include').
+const SessionCookieName = "pet_session"
 
+// SessionParts extrai (usuarioID, token, appKey) da sessão da requisição.
+// Prioridade: cookie HttpOnly `pet_session` (site) e, se não houver, o header
+// `TokenUser` (apps móveis/integrações). Ambos usam o formato
+// "userId:token:appKey".
+func SessionParts(r *http.Request) (int64, string, string, bool) {
+	raw := r.Header.Get("TokenUser")
+	if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" {
+		raw = c.Value
+	}
+	parts := strings.Split(raw, ":")
+	if len(parts) < 3 {
+		return 0, "", "", false
+	}
 	userID, err := strconv.ParseInt(parts[0], 10, 64)
-	token := parts[1]
-	appKey := parts[2]
+	token, appKey := parts[1], parts[2]
 	if err != nil || userID <= 0 || token == "" || appKey == "" {
+		return 0, "", "", false
+	}
+	return userID, token, appKey, true
+}
+
+// authenticate valida a sessão (cookie ou header TokenUser) contra
+// aplicacao_acesso_token e devolve o usuário logado. Retorna (nil, erro)
+// quando a sessão está ausente/inválida/expirada. Falhas de credencial viram
+// sempre 401 — é esse status que o frontend usa para derrubar a sessão local.
+func authenticate(r *http.Request, usuarioRepo *repository.UsuarioRepository, tokenRepo *repository.TokenRepository) (*models.Usuario, *apperr.AppError) {
+	userID, token, appKey, ok := SessionParts(r)
+	if !ok {
 		return nil, apperr.New("Token inválido!", 401)
 	}
 
 	if _, err := tokenRepo.Check(userID, token, appKey); err != nil {
 		if ae, ok := apperr.As(err); ok {
+			if ae.Status == 401 || ae.Status == 403 {
+				return nil, apperr.New(ae.Message, 401)
+			}
 			return nil, ae
 		}
 		return nil, apperr.New("Erro ao validar token.", 500)
@@ -41,7 +63,7 @@ func authenticate(r *http.Request, usuarioRepo *repository.UsuarioRepository, to
 
 	usuario, err := usuarioRepo.FindByID(userID, false)
 	if err != nil {
-		return nil, apperr.New("Usuário não encontrado(a)!", 404)
+		return nil, apperr.New("Usuário não encontrado(a)!", 401)
 	}
 	return usuario, nil
 }
@@ -68,7 +90,7 @@ func RequireAuth(usuarioRepo *repository.UsuarioRepository, tokenRepo *repositor
 func OptionalAuth(usuarioRepo *repository.UsuarioRepository, tokenRepo *repository.TokenRepository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("TokenUser") != "" {
+			if _, _, _, ok := SessionParts(r); ok {
 				if usuario, aerr := authenticate(r, usuarioRepo, tokenRepo); aerr == nil {
 					ctx := context.WithValue(r.Context(), userCtxKey, usuario)
 					r = r.WithContext(ctx)

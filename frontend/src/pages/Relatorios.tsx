@@ -1,13 +1,39 @@
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { FileDown } from 'lucide-react';
 import Card from '../components/Card';
-import { engajamentoMensal, alcancePorMacrorregiao, materiais } from '../data/Data';
+import { listarMateriais, painelIndicadores } from '../lib/api';
+import { useRecurso } from '../lib/useRecurso';
+import { alertaErro } from '../lib/ui';
 
 export default function Relatorios() {
+  const indicadores = useRecurso(painelIndicadores, 6);
+  const lista = useRecurso(listarMateriais, { limit: 100 });
+  const engajamentoMensal = indicadores.data?.engajamento_mensal ?? [];
+  const alcancePorMacrorregiao = indicadores.data?.alcance_por_macrorregiao ?? [];
+  const materiais = [...(lista.data ?? [])].sort((a, b) => b.downloads - a.downloads);
   const totalDownloads = materiais.reduce((acc, m) => acc + m.downloads, 0);
+
+  // Exporta o relatório em CSV (abre direto no Excel/LibreOffice).
+  function exportar() {
+    const linhas = [
+      ['Mês', 'Acessos', 'Downloads'],
+      ...engajamentoMensal.map((e) => [e.mes, e.acessos, e.downloads]),
+      [],
+      ['Material', 'Downloads'],
+      ...materiais.map((m) => [`"${m.titulo.replace(/"/g, '""')}"`, m.downloads]),
+      ['Total', totalDownloads],
+    ];
+    const csv = '\uFEFF' + linhas.map((l) => l.join(';')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'relatorio-petclima.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {indicadores.erro && <div style={alertaErro}>{indicadores.erro}</div>}
       <Card>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           Relatório de Alcance de Mídia e Engajamento — consolida indicadores de tráfego, acessos
@@ -49,7 +75,7 @@ export default function Relatorios() {
       <Card
         title="Downloads por material"
         action={
-          <button style={{
+          <button onClick={exportar} style={{
             display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600,
             color: 'var(--primary)', background: 'transparent', border: '1px solid var(--primary)',
             borderRadius: 999, padding: '6px 14px', cursor: 'pointer',

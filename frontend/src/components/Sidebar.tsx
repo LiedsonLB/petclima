@@ -4,6 +4,7 @@ import {
   MapPinned, FileBarChart, Archive, CalendarClock, Settings, LogOut,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { PAPEL_LABEL, assetUrl, ehCoordenador } from '../lib/api';
 
 const navPrincipal = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -18,7 +19,7 @@ const navConteudo = [
 
 const navTerritorio = [
   { to: '/mapa', icon: MapPinned, label: 'Mapa de Alcance' },
-  { to: '/relatorios', icon: FileBarChart, label: 'Relatórios' },
+  { to: '/relatorios', icon: FileBarChart, label: 'Relatórios', soCoordenacao: true },
   { to: '/repositorio', icon: Archive, label: 'Repositório' },
 ];
 
@@ -36,7 +37,7 @@ const itemStyle = (active: boolean): React.CSSProperties => ({
   textDecoration: 'none',
 });
 
-function NavGroup({ label, items }: { label: string; items: typeof navPrincipal }) {
+function NavGroup({ label, items }: { label: string; items: { to: string; icon: typeof LayoutDashboard; label: string }[] }) {
   return (
     <div>
       <div style={{
@@ -58,6 +59,7 @@ function NavGroup({ label, items }: { label: string; items: typeof navPrincipal 
 export default function Sidebar() {
   const { usuario, sair } = useAuth();
   const navigate = useNavigate();
+  const itensTerritorio = navTerritorio.filter((i) => !i.soCoordenacao || ehCoordenador(usuario?.papel));
 
   const handleSair = () => {
     sair();
@@ -89,7 +91,7 @@ export default function Sidebar() {
       <div style={{ padding: '12px 10px', flex: 1, overflowY: 'auto' }}>
         <NavGroup label="Visão Geral" items={navPrincipal} />
         <NavGroup label="Comunicação e Formação" items={navConteudo} />
-        <NavGroup label="Território" items={navTerritorio} />
+        <NavGroup label="Território" items={itensTerritorio} />
       </div>
 
       <div style={{ padding: '10px', borderTop: '1px solid var(--border)' }}>
@@ -101,7 +103,7 @@ export default function Sidebar() {
               fontSize: 13, fontWeight: 700, flexShrink: 0, overflow: 'hidden',
             }}>
               {usuario.foto ? (
-                <img src={usuario.foto} alt={usuario.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={assetUrl(usuario.foto)} alt={usuario.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 usuario.nome.charAt(0).toUpperCase()
               )}
@@ -111,7 +113,7 @@ export default function Sidebar() {
                 {usuario.nome}
               </div>
               <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                {usuario.perfil_label ?? 'Usuário'}
+                {PAPEL_LABEL[usuario.papel] ?? 'Usuário'}
               </div>
             </div>
           </div>

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/petsaude/petclima-backend/internal/apperr"
+	"github.com/petsaude/petclima-backend/internal/emailtpl"
 	"github.com/petsaude/petclima-backend/internal/httpx"
 	"github.com/petsaude/petclima-backend/internal/mailer"
 	"github.com/petsaude/petclima-backend/internal/middleware"
@@ -167,15 +168,35 @@ func (h *LoginHandler) linkComQuery(path, email, token string) string {
 	return fmt.Sprintf("%s%s?%s", h.frontendURL, path, q.Encode())
 }
 
-// enviarEmailJob publica um job de e-mail na fila; retorna false se o
-// RabbitMQ não estiver disponível (o chamador decide o fallback).
+// enviarEmailJob entrega um e-mail com a identidade visual do projeto:
+// primeiro pela fila (RabbitMQ → worker-email); se a fila não estiver
+// disponível, renderiza o mesmo template HTML e envia direto por SMTP (ou só
+// registra no log, quando não há SMTP configurado). Retorna false apenas se
+// nenhum dos dois caminhos funcionou — aí o chamador usa o texto puro.
 func (h *LoginHandler) enviarEmailJob(job models.EmailJob) bool {
-	if h.rabbit == nil {
+	job.CriadoEm = time.Now()
+	if h.rabbit != nil {
+		if err := h.rabbit.Publish(queue.QueueEmail, job); err == nil {
+			return true
+		} else {
+			log.Println("erro ao publicar e-mail na fila:", err)
+		}
+	}
+
+	dados := map[string]string{}
+	for k, v := range job.Dados {
+		dados[k] = v
+	}
+	if _, ok := dados["nome_destinatario"]; !ok {
+		dados["nome_destinatario"] = job.NomeDestino
+	}
+	dados["assunto"] = job.Assunto
+	html, err := emailtpl.Render(job.Tipo, dados)
+	if err != nil {
+		log.Println("erro ao renderizar e-mail:", err)
 		return false
 	}
-	job.CriadoEm = time.Now()
-	if err := h.rabbit.Publish(queue.QueueEmail, job); err != nil {
-		log.Println("erro ao publicar e-mail na fila:", err)
+	if err := h.mailer.SendHTML(job.Destinatario, job.Assunto, html); err != nil {
 		return false
 	}
 	return true
@@ -212,6 +233,43 @@ func (h *LoginHandler) sendVerificationEmail(email, nome string) error {
 		nome, h.appName, link,
 	)
 	return h.mailer.Send(email, "Confirme seu e-mail — "+h.appName, body)
+}
+
+// sessaoSegura indica se o cookie deve levar a flag Secure (HTTPS direto ou
+// atrás de proxy/nginx com X-Forwarded-Proto).
+func sessaoSegura(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// setSessionCookie grava a sessão em um cookie HttpOnly: o JavaScript do
+// navegador não consegue ler o token (protege contra roubo por XSS). Token
+// longo ("manter conectado") vira cookie persistente; o curto, cookie de
+// sessão do navegador.
+func (h *LoginHandler) setSessionCookie(w http.ResponseWriter, r *http.Request, usuarioID int64, token, appKey string) {
+	c := &http.Cookie{
+		Name:     middleware.SessionCookieName,
+		Value:    fmt.Sprintf("%d:%s:%s", usuarioID, token, appKey),
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   sessaoSegura(r),
+		SameSite: http.SameSiteLaxMode,
+	}
+	if models.IsLongToken(token) {
+		c.MaxAge = models.TempoLimiteLongoAPIMinutes * 60
+	}
+	http.SetCookie(w, c)
+}
+
+func (h *LoginHandler) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     middleware.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   sessaoSegura(r),
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // Run handles POST /acesso/login, mirroring LoginController::run.
@@ -282,7 +340,20 @@ func (h *LoginHandler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = h.usuarioRepo.TouchAcesso(usuario.ID)
 
+	h.setSessionCookie(w, r, usuario.ID, at.Token, app.Codigo)
 	httpx.JSON(w, 200, loginResponse{Usuario: usuario, Token: at.Token})
+}
+
+// Logout handles POST /acesso/logout — revoga o token no servidor e apaga o
+// cookie. Sempre responde 200: sair com sessão já expirada não é erro.
+func (h *LoginHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	if userID, token, _, ok := middleware.SessionParts(r); ok {
+		if err := h.tokenRepo.Revoke(userID, token); err != nil {
+			log.Println("erro ao revogar token:", err)
+		}
+	}
+	h.clearSessionCookie(w, r)
+	httpx.Success(w, "Sessão encerrada.", 200)
 }
 
 // loginResponse devolve o perfil completo (papel, município, GAT...) junto
@@ -368,8 +439,8 @@ func (h *LoginHandler) Cadastro(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cpf := onlyDigits(req.CPF)
-	if cpf != "" && len(cpf) != 11 {
-		httpx.ErrorWithFields(w, "Dados inválidos.", map[string]string{"cpf": "deve ter 11 dígitos"}, 422)
+	if cpf != "" && !cpfValido(cpf) {
+		httpx.ErrorWithFields(w, "Dados inválidos.", map[string]string{"cpf": "CPF inválido"}, 422)
 		return
 	}
 	if !req.AceiteTermos {
@@ -437,22 +508,18 @@ func (h *LoginHandler) Cadastro(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.setSessionCookie(w, r, created.ID, at.Token, app.Codigo)
 	httpx.JSON(w, 201, loginResponse{Usuario: created, Token: at.Token})
 }
 
 // CheckToken handles POST /acesso/check_token
 func (h *LoginHandler) CheckToken(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(r.Header.Get("TokenUser"), ":")
-	if len(parts) < 3 {
+	userID, token, appKey, ok := middleware.SessionParts(r)
+	if !ok {
 		httpx.Error(w, "Token inválido!", 401)
 		return
 	}
-	userID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || userID <= 0 || parts[1] == "" || parts[2] == "" {
-		httpx.Error(w, "Token inválido!", 401)
-		return
-	}
-	if _, err := h.tokenRepo.Check(userID, parts[1], parts[2]); err != nil {
+	if _, err := h.tokenRepo.Check(userID, token, appKey); err != nil {
 		if ae, ok := apperr.As(err); ok {
 			httpx.Error(w, ae.Message, ae.Status)
 		} else {
@@ -472,18 +539,13 @@ func (h *LoginHandler) CheckToken(w http.ResponseWriter, r *http.Request) {
 // session alive, without that traffic being tied to any particular
 // feature request.
 func (h *LoginHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(r.Header.Get("TokenUser"), ":")
-	if len(parts) < 3 {
-		httpx.Error(w, "Token inválido!", 401)
-		return
-	}
-	userID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || userID <= 0 || parts[1] == "" || parts[2] == "" {
+	userID, token, appKey, ok := middleware.SessionParts(r)
+	if !ok {
 		httpx.Error(w, "Token inválido!", 401)
 		return
 	}
 
-	at, err := h.tokenRepo.Check(userID, parts[1], parts[2])
+	at, err := h.tokenRepo.Check(userID, token, appKey)
 	if err != nil {
 		if ae, ok := apperr.As(err); ok {
 			httpx.Error(w, ae.Message, ae.Status)
