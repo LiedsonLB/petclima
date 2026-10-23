@@ -40,7 +40,7 @@ func (n *Notifier) Generico(u *models.Usuario, assunto, titulo, mensagem, textoA
 			"texto_acao":        textoAcao,
 			"link_acao":         linkAcao,
 			"nome_app":          n.appName,
-			"logo_url":          n.frontendURL + "/petsaudeclima_icon.png",
+			"logo_url":          n.frontendURL + "/logo-pet.png",
 		},
 		CriadoEm: time.Now(),
 	}

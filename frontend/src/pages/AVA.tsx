@@ -33,7 +33,7 @@ export default function AVA() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Link to="/formacao" style={{ ...botaoContorno, alignSelf: 'flex-start', textDecoration: 'none' }}>
+      <Link to="/formacao" style={{ ...botaoContorno, color: 'var(--text-secondary)', borderColor: 'var(--border-strong)', alignSelf: 'flex-start', textDecoration: 'none' }}>
         <ArrowLeft size={13} /> Voltar para Educação Permanente
       </Link>
 
