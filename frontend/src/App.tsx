@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import AppLayout from './components/AppLayout';
@@ -45,7 +45,8 @@ function App() {
             <Route path="/cronograma" element={<Protegida><Cronograma /></Protegida>} />
             <Route path="/comunicacao" element={<Protegida><Comunicacao /></Protegida>} />
             <Route path="/formacao" element={<Protegida><Formacao /></Protegida>} />
-            <Route path="/ava" element={<Protegida><AVA /></Protegida>} />
+            <Route path="/formacao/ava" element={<Protegida><AVA /></Protegida>} />
+            <Route path="/ava" element={<Navigate to="/formacao/ava" replace />} />
             <Route path="/mapa" element={<Protegida><Mapa /></Protegida>} />
             <Route path="/relatorios" element={<Protegida><Relatorios /></Protegida>} />
             <Route path="/repositorio" element={<Protegida><Repositorio /></Protegida>} />

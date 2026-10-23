@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Megaphone, GraduationCap, BookOpenCheck,
+  LayoutDashboard, Megaphone, GraduationCap,
   MapPinned, FileBarChart, Archive, CalendarClock, Settings, LogOut,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -14,7 +14,6 @@ const navPrincipal = [
 const navConteudo = [
   { to: '/comunicacao', icon: Megaphone, label: 'Comunicação' },
   { to: '/formacao', icon: GraduationCap, label: 'Educação Permanente' },
-  { to: '/ava', icon: BookOpenCheck, label: 'AVA · Cursos' },
 ];
 
 const navTerritorio = [

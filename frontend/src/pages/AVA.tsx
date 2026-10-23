@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BookOpenCheck, Clock, Layers, Award } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, BookOpenCheck, Clock, Layers, Award } from 'lucide-react';
 import Card from '../components/Card';
 import ProgressBar from '../components/ProgressBar';
 import { atualizarProgresso, listarCursos, matricular, mensagemDeErro, type Curso } from '../lib/api';
@@ -32,6 +33,10 @@ export default function AVA() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Link to="/formacao" style={{ ...botaoContorno, alignSelf: 'flex-start', textDecoration: 'none' }}>
+        <ArrowLeft size={13} /> Voltar para Educação Permanente
+      </Link>
+
       <Card>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <BookOpenCheck size={16} color="var(--primary)" />

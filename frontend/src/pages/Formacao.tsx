@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CalendarDays, Users, ShieldAlert, Plus } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, BookOpenCheck, CalendarDays, Users, ShieldAlert, Plus } from 'lucide-react';
 import Card from '../components/Card';
 import KpiCard from '../components/KpiCard';
 import Modal from '../components/Modal';
@@ -50,6 +51,21 @@ export default function Formacao() {
           Programa de Formação em Letramento em Saúde e Combate às Fake News: oficinas presenciais
           e remotas voltadas a profissionais de saúde e Agentes Comunitários de Saúde (ACS), com a
           meta de capacitar no mínimo <strong style={{ color: 'var(--text-primary)' }}>200 pessoas</strong> até o fim do Semestre 2.
+        </p>
+      </Card>
+
+      <Card
+        title="AVA · Cursos"
+        icon={<BookOpenCheck size={16} />}
+        action={
+          <Link to="/formacao/ava" style={{ ...botaoPrimario, textDecoration: 'none' }}>
+            Acessar cursos <ArrowRight size={13} />
+          </Link>
+        }
+      >
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          Acesse o Ambiente Virtual de Aprendizagem para participar dos cursos autoinstrucionais
+          sobre Clima e Saúde e acompanhar seu progresso.
         </p>
       </Card>
 
