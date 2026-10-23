@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS `matricula`;
+DROP TABLE IF EXISTS `curso`;

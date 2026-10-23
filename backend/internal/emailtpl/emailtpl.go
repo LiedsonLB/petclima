@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"html/template"
 
-	"github.com/liedsonlb/petsaude-clima/templates"
+	"github.com/petsaude/petclima-backend/templates"
 )
 
 const tipoGenerico = "generico"

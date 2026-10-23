@@ -2,17 +2,15 @@ package service
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
-	"html/template"
-	"mime"
-	"net/smtp"
+	"log"
 	"os"
-	"path/filepath"
-	"strings"
+	"strconv"
 
-	"github.com/liedsonlb/petsaude-clima/internal/config"
-	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/petsaude/petclima-backend/internal/config"
+	"github.com/petsaude/petclima-backend/internal/emailtpl"
+	"github.com/petsaude/petclima-backend/internal/mailer"
+	"github.com/petsaude/petclima-backend/internal/models"
 )
 
 type EmailService struct {
@@ -23,24 +21,15 @@ func NewEmailService(cfg *config.Config) *EmailService {
 	return &EmailService{cfg: cfg}
 }
 
-// templatesDir aponta pra pasta de templates HTML dos emails. Cada
-// EmailJob.Tipo mapeia para "templates/email/<tipo>.html" — se o arquivo não
-// existir, cai para "generico.html".
-const templatesDir = "templates/email"
+// Configurado informa se há SMTP configurado (MAIL_HOST e MAIL_FROM_ADDRESS).
+func (e *EmailService) Configurado() bool {
+	return e.cfg.SMTPHost != "" && e.cfg.SMTPPort != 0 && e.cfg.SMTPFrom != ""
+}
 
-// Enviar renderiza o template correspondente ao Tipo do job (com os dados em
-// job.Dados) e envia por SMTP, com anexos opcionais.
+// Enviar renderiza o template embutido no binário correspondente ao Tipo do
+// job (templates/email/<tipo>.html, com fallback para "generico") e o entrega
+// por SMTP, com anexos opcionais.
 func (e *EmailService) Enviar(job models.EmailJob) error {
-	tmplPath := filepath.Join(templatesDir, job.Tipo+".html")
-	if _, err := os.Stat(tmplPath); err != nil {
-		tmplPath = filepath.Join(templatesDir, models.EmailTipoGenerico+".html")
-	}
-
-	tmpl, err := template.ParseFiles(tmplPath)
-	if err != nil {
-		return fmt.Errorf("erro ao carregar template de email (%s): %w", tmplPath, err)
-	}
-
 	data := map[string]string{}
 	for k, v := range job.Dados {
 		data[k] = v
@@ -49,51 +38,44 @@ func (e *EmailService) Enviar(job models.EmailJob) error {
 		data["nome_destinatario"] = job.NomeDestino
 	}
 	data["assunto"] = job.Assunto
-	// Garante que todo e-mail tenha a logo do PET-Saúde Clima, mesmo quando
-	// quem disparou o job (job.Dados) não passou logo_url explicitamente.
-	if _, ok := data["logo_url"]; !ok {
-		data["logo_url"] = e.cfg.FrontendURL + "/petsaudeclima_icon.png"
-	}
 
-	var htmlBody bytes.Buffer
-	if err := tmpl.Execute(&htmlBody, data); err != nil {
-		return fmt.Errorf("erro ao renderizar template de email: %w", err)
-	}
-
-	msg, err := buildMIMEMessage(e.cfg, job.Destinatario, job.Assunto, htmlBody.String(), job.Anexos)
+	html, err := emailtpl.Render(job.Tipo, data)
 	if err != nil {
 		return err
 	}
 
-	auth := smtp.PlainAuth("", e.cfg.SMTPUser, e.cfg.SMTPPass, e.cfg.SMTPHost)
-	addr := fmt.Sprintf("%s:%d", e.cfg.SMTPHost, e.cfg.SMTPPort)
+	msg, err := buildMIMEMessage(e.cfg, job.Destinatario, job.Assunto, html, job.Anexos)
+	if err != nil {
+		return err
+	}
 
-	return smtp.SendMail(addr, auth, e.cfg.SMTPFrom, []string{job.Destinatario}, msg)
+	return mailer.Deliver(
+		e.cfg.SMTPHost, strconv.Itoa(e.cfg.SMTPPort),
+		e.cfg.SMTPUser, e.cfg.SMTPPass,
+		e.cfg.SMTPFrom, job.Destinatario, msg,
+	)
 }
 
-// buildMIMEMessage monta um email multipart/mixed simples: corpo HTML +
-// anexos em base64. Escrito à mão (sem lib de mail) pra manter o worker sem
-// dependências extras — é só texto MIME, não tem mistério.
+// buildMIMEMessage monta o e-mail: corpo HTML em base64 e, se houver,
+// anexos (multipart/mixed).
 func buildMIMEMessage(cfg *config.Config, destino, assunto, htmlBody string, anexos []models.EmailAnexo) ([]byte, error) {
-	boundary := "webleia-boundary-42"
 	var buf bytes.Buffer
-
-	// fmt.Fprintf(&buf, "From: %s <%s>\r\n", cfg.SMTPFromName, cfg.SMTPFrom)
-	fmt.Fprintf(&buf, "To: %s\r\n", destino)
-	fmt.Fprintf(&buf, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", assunto))
-	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")
+	mailer.WriteHeaders(&buf, cfg.AppName, cfg.SMTPFrom, destino, assunto)
 
 	if len(anexos) == 0 {
-		fmt.Fprintf(&buf, "Content-Type: text/html; charset=\"UTF-8\"\r\n\r\n")
-		buf.WriteString(htmlBody)
+		buf.WriteString("Content-Type: text/html; charset=\"UTF-8\"\r\n")
+		buf.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+		buf.WriteString(mailer.ChunkedBase64([]byte(htmlBody)))
 		return buf.Bytes(), nil
 	}
 
+	boundary := "petclima-boundary-42"
 	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=%q\r\n\r\n", boundary)
 
 	fmt.Fprintf(&buf, "--%s\r\n", boundary)
-	fmt.Fprintf(&buf, "Content-Type: text/html; charset=\"UTF-8\"\r\n\r\n")
-	buf.WriteString(htmlBody)
+	buf.WriteString("Content-Type: text/html; charset=\"UTF-8\"\r\n")
+	buf.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+	buf.WriteString(mailer.ChunkedBase64([]byte(htmlBody)))
 	buf.WriteString("\r\n")
 
 	for _, anexo := range anexos {
@@ -106,32 +88,17 @@ func buildMIMEMessage(cfg *config.Config, destino, assunto, htmlBody string, ane
 			}
 		}
 		if len(content) == 0 {
+			log.Printf("anexo %q vazio, ignorado", anexo.NomeArquivo)
 			continue
 		}
 		fmt.Fprintf(&buf, "--%s\r\n", boundary)
 		fmt.Fprintf(&buf, "Content-Type: application/octet-stream; name=%q\r\n", anexo.NomeArquivo)
-		fmt.Fprintf(&buf, "Content-Transfer-Encoding: base64\r\n")
+		buf.WriteString("Content-Transfer-Encoding: base64\r\n")
 		fmt.Fprintf(&buf, "Content-Disposition: attachment; filename=%q\r\n\r\n", anexo.NomeArquivo)
-		buf.WriteString(chunkedBase64(content))
+		buf.WriteString(mailer.ChunkedBase64(content))
 		buf.WriteString("\r\n")
 	}
 	fmt.Fprintf(&buf, "--%s--\r\n", boundary)
 
 	return buf.Bytes(), nil
-}
-
-// chunkedBase64 codifica em base64 padrão, quebrando em linhas de 76
-// caracteres (RFC 2045) como esperado em corpos MIME.
-func chunkedBase64(data []byte) string {
-	encoded := base64.StdEncoding.EncodeToString(data)
-	var out strings.Builder
-	for i := 0; i < len(encoded); i += 76 {
-		end := i + 76
-		if end > len(encoded) {
-			end = len(encoded)
-		}
-		out.WriteString(encoded[i:end])
-		out.WriteString("\r\n")
-	}
-	return out.String()
 }

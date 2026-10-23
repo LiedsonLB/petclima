@@ -18,7 +18,7 @@ type Config struct {
 	DBUser     string
 	DBPassword string
 
-	// ---- RabbitMQ (workers de email/export) --------------------------
+	// ---- RabbitMQ (worker de e-mail) ---------------------------------
 	RabbitURL string
 
 	// ---- SMTP (worker-email) -----------------------------------------
@@ -30,6 +30,9 @@ type Config struct {
 
 	// FrontendURL is used to build links sent by e-mail (password reset).
 	FrontendURL string
+	// CORSOrigins: origens extras (separadas por vírgula em CORS_ORIGINS)
+	// além do FrontendURL, que sempre é liberado.
+	CORSOrigins []string
 
 	// ---- LiveKit (salas) ----------------------------------------------
 	LiveKitAPIKey    string
@@ -41,10 +44,7 @@ type Config struct {
 	// Se vazia, usa LiveKitURL (compatível com dev local sem Docker).
 	LiveKitPublicURL string
 
-	// ---- Exportação ---------------------------------------------------
-	ExportOutputDir string
-
-	// ---- Uploads (fotos de perfil, etc.) -------------------------------
+	// ---- Uploads (fotos de perfil, materiais, capas) -------------------
 	UploadDir string
 
 	// ---- Verificação de e-mail (tokens auto-validáveis) ----------------
@@ -67,6 +67,16 @@ func getEnvInt(key string, fallback int) int {
 	return fallback
 }
 
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func Load() *Config {
 	liveKitURL := getEnv("LIVEKIT_URL", "wss://localhost:7880")
 	liveKitPublicURL := getEnv("LIVEKIT_PUBLIC_URL", liveKitURL)
@@ -75,14 +85,15 @@ func Load() *Config {
 		AppName:    getEnv("APP_NAME", "PET-Saúde Clima"),
 		Port:       getEnv("PORT", "8080"),
 		TokenKey:   getEnv("TOKEN_KEY", "change-me"),
-		AppKey:     getEnv("APP_KEY", "PETSAUDEWEB"),
+		AppKey:     getEnv("APP_KEY", "PETCLIMA_WEB"),
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),
-		DBDatabase: getEnv("DB_DATABASE", "petsaude"),
+		DBDatabase: getEnv("DB_DATABASE", "petclima"),
 		DBUser:     getEnv("DB_USERNAME", "root"),
 		DBPassword: getEnv("DB_PASSWORD", ""),
 
-		FrontendURL: strings.TrimRight(getEnv("FRONTEND_URL", "http://localhost:5173"), "/"),
+		FrontendURL: getEnv("FRONTEND_URL", "http://localhost:5173"),
+		CORSOrigins: splitCSV(getEnv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 
 		RabbitURL: getEnv("RABBIT_URL", "amqp://guest:guest@localhost:5672/"),
 
@@ -97,11 +108,9 @@ func Load() *Config {
 		LiveKitURL:       liveKitURL,
 		LiveKitPublicURL: liveKitPublicURL,
 
-		ExportOutputDir: getEnv("EXPORT_OUTPUT_DIR", "./storage/exportacoes"),
-
 		UploadDir: getEnv("UPLOAD_DIR", "../uploads"),
 
-		VerificationSecret: getEnv("VERIFICATION_SECRET", "web-leia-verification-secret-change-me"),
+		VerificationSecret: getEnv("VERIFICATION_SECRET", "petclima-verification-secret-change-me"),
 	}
 }
 

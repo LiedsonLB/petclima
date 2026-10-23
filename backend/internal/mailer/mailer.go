@@ -1,28 +1,37 @@
-// Package mailer sends transactional e-mails (account activation, password
-// reset). If SMTP_HOST is not configured, Send falls back to logging the
-// message to stdout so the flow keeps working end-to-end in dev/without
-// mail infra — swap in real SMTP credentials (SMTP_HOST/PORT/USER/PASS/FROM
-// env vars) to actually deliver e-mails in production.
+// Package mailer entrega e-mails por SMTP. É usado em dois lugares:
+//
+//   - pela API, como "plano B" quando o RabbitMQ/worker-email não está
+//     disponível (confirmação de e-mail e redefinição de senha), e
+//   - pelo worker-email (internal/service), via Deliver.
+//
+// Se MAIL_HOST não estiver configurado, Send/SendHTML apenas registram a
+// mensagem no log, para o fluxo funcionar de ponta a ponta em desenvolvimento
+// (o link de confirmação/redefinição aparece no console do backend).
 package mailer
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
-	"html/template"
 	"log"
 	"mime"
+	"net"
+	"net/mail"
 	"net/smtp"
+	"strings"
 	"time"
-
-	"github.com/liedsonlb/petsaude-clima/internal/emailtpl"
 )
 
 type Config struct {
-	Host string
-	Port string
-	User string
-	Pass string
-	From string
+	Host     string
+	Port     string
+	User     string
+	Pass     string
+	From     string // endereço do remetente (aceita também "Nome <a@b.c>")
+	FromName string // nome exibido (opcional)
 }
 
 type Mailer struct {
@@ -33,284 +42,161 @@ func New(cfg Config) *Mailer {
 	return &Mailer{cfg: cfg}
 }
 
-func (m *Mailer) configured() bool {
+// Configured informa se há SMTP configurado (host, porta e remetente).
+func (m *Mailer) Configured() bool {
 	return m.cfg.Host != "" && m.cfg.Port != "" && m.cfg.From != ""
 }
 
-// EmailData é a estrutura base para templates de email
-type EmailData struct {
-	AppName     string
-	FrontendURL string
-	UserName    string
-	Email       string
-	Token       string
-	Link        string
-	Year        int
-	IP          string
-	Now         string
-}
-
-// SendPasswordReset envia email de recuperação de senha
-func (m *Mailer) SendPasswordReset(to, name, token, frontendURL, appName string) error {
-	link := fmt.Sprintf("%s/recuperar-senha?token=%s", frontendURL, token)
-	
-	data := EmailData{
-		AppName:     appName,
-		FrontendURL: frontendURL,
-		UserName:    name,
-		Email:       to,
-		Token:       token,
-		Link:        link,
-		Year:        time.Now().Year(),
-	}
-
-	subject := "Recuperação de senha - " + appName
-	body, err := m.renderTemplate(passwordResetTemplate, data)
-	if err != nil {
-		return err
-	}
-
-	return m.Send(to, subject, body)
-}
-
-// SendWelcome envia email de boas-vindas
-func (m *Mailer) SendWelcome(to, name, frontendURL, appName string) error {
-	data := EmailData{
-		AppName:     appName,
-		FrontendURL: frontendURL,
-		UserName:    name,
-		Email:       to,
-		Year:        time.Now().Year(),
-	}
-
-	subject := "Bem-vindo ao " + appName
-	body, err := m.renderTemplate(welcomeTemplate, data)
-	if err != nil {
-		return err
-	}
-
-	return m.Send(to, subject, body)
-}
-
-// SendNewLogin envia notificação de novo login
-func (m *Mailer) SendNewLogin(to, name, ip, frontendURL, appName string) error {
-	data := EmailData{
-		AppName:     appName,
-		FrontendURL: frontendURL,
-		UserName:    name,
-		Email:       to,
-		IP:          ip,
-		Now:         time.Now().Format("02/01/2006 15:04:05"),
-		Year:        time.Now().Year(),
-	}
-
-	subject := "Novo acesso detectado - " + appName
-	body, err := m.renderTemplate(newLoginTemplate, data)
-	if err != nil {
-		return err
-	}
-
-	return m.Send(to, subject, body)
-}
-
-// SendTemplate renderiza templates/email/<tipo>.html (o mesmo usado pelo
-// worker-email) e envia direto por SMTP. É o fallback quando a fila do
-// RabbitMQ não está disponível — assim o e-mail sai igualmente bonito.
-func (m *Mailer) SendTemplate(tipo, to, subject string, data map[string]string) error {
-	body, err := emailtpl.Render(tipo, data)
-	if err != nil {
-		return err
-	}
-	return m.Send(to, subject, body)
-}
-
-// renderTemplate renderiza um template HTML
-func (m *Mailer) renderTemplate(templateStr string, data EmailData) (string, error) {
-	t, err := template.New("email").Parse(templateStr)
-	if err != nil {
-		return "", err
-	}
-
-	var buf bytes.Buffer
-	err = t.Execute(&buf, data)
-	if err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
-}
-
-// Send delivers an e-mail, or logs it to stdout when SMTP isn't configured
+// Send entrega um e-mail em texto puro.
 func (m *Mailer) Send(to, subject, body string) error {
-	if !m.configured() {
+	return m.send(to, subject, "text/plain", body)
+}
+
+// SendHTML entrega um e-mail HTML (ex.: templates com a identidade do projeto).
+func (m *Mailer) SendHTML(to, subject, html string) error {
+	return m.send(to, subject, "text/html", html)
+}
+
+func (m *Mailer) send(to, subject, contentType, body string) error {
+	if !m.Configured() {
 		log.Printf("[mailer] SMTP não configurado — e-mail não enviado de verdade.\nPara: %s\nAssunto: %s\n%s\n", to, subject, body)
 		return nil
 	}
 
-	addr := fmt.Sprintf("%s:%s", m.cfg.Host, m.cfg.Port)
-	msg := []byte("From: PET-Saúde Clima <" + m.cfg.From + ">\r\n" +
-		"To: " + to + "\r\n" +
-		"Subject: " + mime.QEncoding.Encode("UTF-8", subject) + "\r\n" +
-		"MIME-Version: 1.0\r\n" +
-		"Content-Type: text/html; charset=UTF-8\r\n" +
-		"\r\n" +
-		body + "\r\n")
-
-	var auth smtp.Auth
-	if m.cfg.User != "" {
-		auth = smtp.PlainAuth("", m.cfg.User, m.cfg.Pass, m.cfg.Host)
-	}
-	
-	if err := smtp.SendMail(addr, auth, m.cfg.From, []string{to}, msg); err != nil {
+	msg := BuildMessage(m.cfg.FromName, m.cfg.From, to, subject, contentType, body)
+	if err := Deliver(m.cfg.Host, m.cfg.Port, m.cfg.User, m.cfg.Pass, m.cfg.From, to, msg); err != nil {
 		log.Printf("[mailer] falha ao enviar e-mail para %s: %v", to, err)
 		return err
 	}
-	
-	log.Printf("[mailer] ✅ Email enviado para %s", to)
+	log.Printf("[mailer] ✅ E-mail enviado para %s", to)
 	return nil
 }
 
-// Templates HTML
-const passwordResetTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Recuperação de Senha</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f6f9f7; margin: 0; padding: 0; }
-        .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; }
-        .header { background: #2f3e4f; padding: 30px; text-align: center; }
-        .header h1 { color: #ffffff; margin: 0; font-family: 'Georgia', serif; font-weight: 500; font-size: 28px; }
-        .content { padding: 40px 35px; }
-        .content h2 { color: #2f3e4f; margin-top: 0; font-size: 22px; font-weight: 500; }
-        .content p { color: #4a5a6b; line-height: 1.6; margin: 16px 0; }
-        .button-container { text-align: center; margin: 30px 0; }
-        .button { display: inline-block; background: #2f3e4f; color: #ffffff; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; }
-        .button:hover { background: #1d2a38; }
-        .footer { padding: 20px 35px; text-align: center; border-top: 1px solid #e8ecea; color: #8a9aa8; font-size: 13px; }
-        .footer p { margin: 4px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>{{.AppName}}</h1>
-        </div>
-        <div class="content">
-            <h2>Recuperação de senha</h2>
-            <p>Olá <strong>{{.UserName}}</strong>,</p>
-            <p>Recebemos uma solicitação para redefinir a senha da sua conta no {{.AppName}}.</p>
-            <p>Clique no botão abaixo para criar uma nova senha:</p>
-            <div class="button-container">
-                <a href="{{.Link}}" class="button">Redefinir senha</a>
-            </div>
-            <p>Se você não solicitou esta redefinição, ignore este email. O link expira em 24 horas.</p>
-            <p style="color: #8a9aa8; font-size: 14px;">Ou copie o link abaixo:</p>
-            <p style="background: #f6f9f7; padding: 12px; border-radius: 6px; word-break: break-all; font-size: 13px; color: #4a5a6b;">{{.Link}}</p>
-        </div>
-        <div class="footer">
-            <p>© {{.Year}} {{.AppName}}. Todos os direitos reservados.</p>
-            <p>Este é um email automático, por favor não responda.</p>
-        </div>
-    </div>
-</body>
-</html>
-`
+// BuildMessage monta uma mensagem MIME simples (corpo em base64, UTF-8) com
+// os cabeçalhos que provedores como Gmail/Outlook exigem (Date, Message-ID).
+func BuildMessage(fromName, from, to, subject, contentType, body string) []byte {
+	var buf bytes.Buffer
+	writeHeaders(&buf, fromName, from, to, subject)
+	fmt.Fprintf(&buf, "Content-Type: %s; charset=\"UTF-8\"\r\n", contentType)
+	buf.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+	buf.WriteString(ChunkedBase64([]byte(body)))
+	return buf.Bytes()
+}
 
-const welcomeTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bem-vindo!</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f6f9f7; margin: 0; padding: 0; }
-        .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; }
-        .header { background: #2f3e4f; padding: 30px; text-align: center; }
-        .header h1 { color: #ffffff; margin: 0; font-family: 'Georgia', serif; font-weight: 500; font-size: 28px; }
-        .content { padding: 40px 35px; }
-        .content h2 { color: #2f3e4f; margin-top: 0; font-size: 22px; font-weight: 500; }
-        .content p { color: #4a5a6b; line-height: 1.6; margin: 16px 0; }
-        .button-container { text-align: center; margin: 30px 0; }
-        .button { display: inline-block; background: #2f3e4f; color: #ffffff; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; }
-        .button:hover { background: #1d2a38; }
-        .footer { padding: 20px 35px; text-align: center; border-top: 1px solid #e8ecea; color: #8a9aa8; font-size: 13px; }
-        .footer p { margin: 4px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>{{.AppName}}</h1>
-        </div>
-        <div class="content">
-            <h2>Bem-vindo ao {{.AppName}}! 🎉</h2>
-            <p>Olá <strong>{{.UserName}}</strong>,</p>
-            <p>Estamos muito felizes em ter você conosco!</p>
-            <p>O {{.AppName}} é uma plataforma de produção textual guiada que vai te ajudar a desenvolver suas habilidades de escrita acadêmica.</p>
-            <p>Para começar, acesse o link abaixo:</p>
-            <div class="button-container">
-                <a href="{{.FrontendURL}}" class="button">Acessar plataforma</a>
-            </div>
-            <p>Se tiver dúvidas, estamos aqui para ajudar!</p>
-        </div>
-        <div class="footer">
-            <p>© {{.Year}} {{.AppName}}. Todos os direitos reservados.</p>
-            <p>Este é um email automático, por favor não responda.</p>
-        </div>
-    </div>
-</body>
-</html>
-`
+// WriteHeaders escreve From/To/Subject/Date/Message-ID/MIME-Version.
+// Exportada para o worker montar mensagens com anexos.
+func WriteHeaders(buf *bytes.Buffer, fromName, from, to, subject string) {
+	writeHeaders(buf, fromName, from, to, subject)
+}
 
-const newLoginTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Novo acesso detectado</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f6f9f7; margin: 0; padding: 0; }
-        .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; }
-        .header { background: #2f3e4f; padding: 30px; text-align: center; }
-        .header h1 { color: #ffffff; margin: 0; font-family: 'Georgia', serif; font-weight: 500; font-size: 28px; }
-        .content { padding: 40px 35px; }
-        .content h2 { color: #2f3e4f; margin-top: 0; font-size: 22px; font-weight: 500; }
-        .content p { color: #4a5a6b; line-height: 1.6; margin: 16px 0; }
-        .info-box { background: #f6f9f7; padding: 16px; border-radius: 8px; margin: 20px 0; }
-        .info-box p { margin: 6px 0; }
-        .footer { padding: 20px 35px; text-align: center; border-top: 1px solid #e8ecea; color: #8a9aa8; font-size: 13px; }
-        .footer p { margin: 4px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>{{.AppName}}</h1>
-        </div>
-        <div class="content">
-            <h2>Novo acesso detectado 🔐</h2>
-            <p>Olá <strong>{{.UserName}}</strong>,</p>
-            <p>Detectamos um novo acesso à sua conta do {{.AppName}}.</p>
-            <div class="info-box">
-                <p><strong>📍 IP:</strong> {{.IP}}</p>
-                <p><strong>🕐 Data/Hora:</strong> {{.Now}}</p>
-            </div>
-            <p>Se foi você, ignore este email.</p>
-            <p><strong>Se não foi você</strong>, acesse sua conta e redefina sua senha imediatamente.</p>
-            <div style="text-align: center; margin: 20px 0;">
-                <a href="{{.FrontendURL}}" style="display: inline-block; background: #2f3e4f; color: #ffffff; padding: 10px 24px; border-radius: 8px; text-decoration: none;">Acessar conta</a>
-            </div>
-        </div>
-        <div class="footer">
-            <p>© {{.Year}} {{.AppName}}. Todos os direitos reservados.</p>
-            <p>Este é um email automático, por favor não responda.</p>
-        </div>
-    </div>
-</body>
-</html>
-`
+func writeHeaders(buf *bytes.Buffer, fromName, from, to, subject string) {
+	addr := envelopeAddress(from)
+	if fromName != "" {
+		fmt.Fprintf(buf, "From: %s\r\n", (&mail.Address{Name: fromName, Address: addr}).String())
+	} else {
+		fmt.Fprintf(buf, "From: %s\r\n", from)
+	}
+	fmt.Fprintf(buf, "To: %s\r\n", to)
+	fmt.Fprintf(buf, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", subject))
+	fmt.Fprintf(buf, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
+	fmt.Fprintf(buf, "Message-ID: <%s@%s>\r\n", randomID(), domainOf(addr))
+	buf.WriteString("MIME-Version: 1.0\r\n")
+}
+
+// ChunkedBase64 codifica em base64 quebrando em linhas de 76 caracteres
+// (RFC 2045).
+func ChunkedBase64(data []byte) string {
+	encoded := base64.StdEncoding.EncodeToString(data)
+	var out strings.Builder
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		out.WriteString(encoded[i:end])
+		out.WriteString("\r\n")
+	}
+	return out.String()
+}
+
+func envelopeAddress(from string) string {
+	if a, err := mail.ParseAddress(from); err == nil {
+		return a.Address
+	}
+	return from
+}
+
+func domainOf(addr string) string {
+	if i := strings.LastIndex(addr, "@"); i >= 0 && i < len(addr)-1 {
+		return addr[i+1:]
+	}
+	return "localhost"
+}
+
+func randomID() string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// Deliver entrega a mensagem já montada ao servidor SMTP.
+//   - porta 465: TLS implícito;
+//   - demais portas (587, 25, 1025...): STARTTLS quando o servidor oferece;
+//   - autentica (PLAIN) só se user estiver preenchido — servidores de teste
+//     locais (MailHog, Mailpit) não pedem login.
+func Deliver(host, port, user, pass, from, to string, msg []byte) error {
+	addr := net.JoinHostPort(host, port)
+	dialer := net.Dialer{Timeout: 15 * time.Second}
+
+	var conn net.Conn
+	var err error
+	if port == "465" {
+		conn, err = tls.DialWithDialer(&dialer, "tcp", addr, &tls.Config{ServerName: host})
+	} else {
+		conn, err = dialer.Dial("tcp", addr)
+	}
+	if err != nil {
+		return fmt.Errorf("conexão SMTP com %s: %w", addr, err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
+
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("cumprimento SMTP: %w", err)
+	}
+	defer c.Close()
+
+	if port != "465" {
+		if ok, _ := c.Extension("STARTTLS"); ok {
+			if err := c.StartTLS(&tls.Config{ServerName: host}); err != nil {
+				return fmt.Errorf("STARTTLS: %w", err)
+			}
+		}
+	}
+	if user != "" {
+		if ok, _ := c.Extension("AUTH"); !ok {
+			return fmt.Errorf("servidor SMTP não oferece autenticação, mas MAIL_USERNAME está preenchido")
+		}
+		if err := c.Auth(smtp.PlainAuth("", user, pass, host)); err != nil {
+			return fmt.Errorf("autenticação SMTP: %w", err)
+		}
+	}
+	if err := c.Mail(envelopeAddress(from)); err != nil {
+		return fmt.Errorf("MAIL FROM: %w", err)
+	}
+	if err := c.Rcpt(envelopeAddress(to)); err != nil {
+		return fmt.Errorf("RCPT TO: %w", err)
+	}
+	w, err := c.Data()
+	if err != nil {
+		return fmt.Errorf("DATA: %w", err)
+	}
+	if _, err := w.Write(msg); err != nil {
+		return fmt.Errorf("escrevendo mensagem: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("finalizando mensagem: %w", err)
+	}
+	return c.Quit()
+}

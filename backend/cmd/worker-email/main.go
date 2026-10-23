@@ -12,10 +12,10 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/liedsonlb/petsaude-clima/internal/config"
-	"github.com/liedsonlb/petsaude-clima/internal/queue"
-	"github.com/liedsonlb/petsaude-clima/internal/service"
-	"github.com/liedsonlb/petsaude-clima/internal/worker"
+	"github.com/petsaude/petclima-backend/internal/config"
+	"github.com/petsaude/petclima-backend/internal/queue"
+	"github.com/petsaude/petclima-backend/internal/service"
+	"github.com/petsaude/petclima-backend/internal/worker"
 )
 
 func main() {
@@ -41,7 +41,7 @@ func main() {
 
 	go worker.StartEmailWorker(rabbit, emailService)
 
-	log.Println("🚀 Worker EMAIL do WebLEIA iniciado")
+	log.Println("🚀 Worker EMAIL do PET-Saúde Clima iniciado")
 	log.Println("📌 Pressione CTRL+C para derrubar este worker")
 
 	sigChan := make(chan os.Signal, 1)

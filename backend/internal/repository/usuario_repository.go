@@ -4,18 +4,15 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/liedsonlb/petsaude-clima/internal/apperr"
-	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/petsaude/petclima-backend/internal/apperr"
+	"github.com/petsaude/petclima-backend/internal/models"
 )
 
-// ListParams mirrors the query-string contract of BaseListRepository::all
-// (order, sort, limit, onlyTrashed) plus UsuarioRepository::where's own
-// filters (nome, email, perfil, aluno_id), so the existing frontend/app
-// clients keep working unmodified.
+// ListParams controla filtros/paginação de GET /usuarios (usado pela
+// "Gestão de usuários" do painel administrativo).
 type ListParams struct {
 	Order       string
 	Sort        string
@@ -23,21 +20,16 @@ type ListParams struct {
 	Page        int
 	OnlyTrashed bool
 
-	Nome    string
-	Email   string
-	Perfil  int
-	AlunoID int64
-
-	// SessionAlunoID: when the logged-in user is a student (perfil=aluno),
-	// results are always scoped to their own aluno_id (see
-	// UsuarioRepository::where's `$this->userSession->is_aluno` branch).
-	SessionAlunoID int64
-	ScopeToSession bool
+	Nome        string
+	Email       string
+	Papel       string
+	MunicipioID int64
+	GatID       int64
 }
 
 var allowedOrderColumns = map[string]bool{
-	"id": true, "nome": true, "email": true, "perfil": true,
-	"created_at": true, "updated_at": true, "aluno_id": true,
+	"id": true, "nome": true, "email": true, "papel": true,
+	"created_at": true, "updated_at": true,
 }
 
 type UsuarioRepository struct {
@@ -53,58 +45,86 @@ func (r *UsuarioRepository) buildWhere(p ListParams) (string, []any) {
 	args := []any{}
 
 	if p.OnlyTrashed {
-		clauses = append(clauses, "deleted_at IS NOT NULL")
+		clauses = append(clauses, "u.deleted_at IS NOT NULL")
 	} else {
-		clauses = append(clauses, "deleted_at IS NULL")
+		clauses = append(clauses, "u.deleted_at IS NULL")
 	}
 
 	if p.Nome != "" {
-		clauses = append(clauses, "nome LIKE ?")
+		clauses = append(clauses, "u.nome LIKE ?")
 		args = append(args, "%"+p.Nome+"%")
 	}
 	if p.Email != "" {
-		clauses = append(clauses, "email = ?")
+		clauses = append(clauses, "u.email = ?")
 		args = append(args, p.Email)
 	}
-	if p.Perfil > 0 {
-		clauses = append(clauses, "perfil = ?")
-		args = append(args, p.Perfil)
+	if p.Papel != "" {
+		clauses = append(clauses, "u.papel = ?")
+		args = append(args, p.Papel)
 	}
-	if p.AlunoID > 0 {
-		clauses = append(clauses, "aluno_id = ?")
-		args = append(args, p.AlunoID)
+	if p.MunicipioID > 0 {
+		clauses = append(clauses, "u.municipio_id = ?")
+		args = append(args, p.MunicipioID)
 	}
-	if p.ScopeToSession && p.SessionAlunoID > 0 {
-		clauses = append(clauses, "aluno_id = ?")
-		args = append(args, p.SessionAlunoID)
+	if p.GatID > 0 {
+		clauses = append(clauses, "u.gat_id = ?")
+		args = append(args, p.GatID)
 	}
 
 	return strings.Join(clauses, " AND "), args
 }
 
-const usuarioColumns = "id, nome, email, senha, foto, banner, moldura, descricao, instituicao, municipio, profissao, links, jogos, status_customizado, atividade, atividade_tipo, perfil, email_verified_at, created_at, updated_at, deleted_at, aluno_id"
+// usuarioSelect junta cidade/macrorregiao/gat para já devolver os nomes
+// legíveis usados pelo frontend (perfil, cadastro, gestão de usuários), sem
+// exigir uma segunda chamada.
+const usuarioSelect = `
+	SELECT u.id, u.nome, u.email, u.senha, u.foto, u.cpf, u.telefone, u.instituicao,
+	       u.curso_formacao, u.descricao, u.papel, u.municipio_id, u.gat_id,
+	       u.email_verified_at, u.ultimo_acesso, u.aceite_termos_em,
+	       u.created_at, u.updated_at, u.deleted_at,
+	       c.nome, mr.id, mr.nome, g.nome
+	FROM usuario u
+	LEFT JOIN cidade c ON c.id = u.municipio_id
+	LEFT JOIN macrorregiao mr ON mr.id = c.macrorregiao_id
+	LEFT JOIN gat g ON g.id = u.gat_id
+`
 
 func scanUsuario(row interface{ Scan(...any) error }) (*models.Usuario, error) {
 	u := &models.Usuario{}
-	err := row.Scan(&u.ID, &u.Nome, &u.Email, &u.Senha, &u.Foto, &u.Banner, &u.Moldura, &u.Descricao,
-		&u.Instituicao, &u.Municipio, &u.Profissao,
-		&u.Links, &u.Jogos, &u.StatusCustomizado, &u.Atividade, &u.AtividadeTipo, &u.Perfil,
-		&u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt, &u.AlunoID)
+	var municipioNome, macrorregiaoNome, gatNome sql.NullString
+	var macrorregiaoID sql.NullInt64
+	err := row.Scan(&u.ID, &u.Nome, &u.Email, &u.Senha, &u.Foto, &u.CPF, &u.Telefone, &u.Instituicao,
+		&u.CursoFormacao, &u.Descricao, &u.Papel, &u.MunicipioID, &u.GatID,
+		&u.EmailVerifiedAt, &u.UltimoAcesso, &u.AceiteTermosEm,
+		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		&municipioNome, &macrorregiaoID, &macrorregiaoNome, &gatNome)
 	if err != nil {
 		return nil, err
+	}
+	if municipioNome.Valid {
+		u.MunicipioNome = &municipioNome.String
+	}
+	if macrorregiaoID.Valid {
+		u.MacrorregiaoID = &macrorregiaoID.Int64
+	}
+	if macrorregiaoNome.Valid {
+		u.MacrorregiaoNome = &macrorregiaoNome.String
+	}
+	if gatNome.Valid {
+		u.GatNome = &gatNome.String
 	}
 	return u, nil
 }
 
-// All mirrors BaseListRepository::all
+// All lista usuários paginados, usado pela tela de Gestão de usuários.
 func (r *UsuarioRepository) All(p ListParams) ([]*models.Usuario, int64, error) {
 	order := p.Order
 	if order == "" || !allowedOrderColumns[order] {
 		order = "id"
 	}
-	sort := "asc"
+	sortDir := "asc"
 	if strings.EqualFold(p.Sort, "desc") {
-		sort = "desc"
+		sortDir = "desc"
 	}
 
 	where, args := r.buildWhere(p)
@@ -116,7 +136,7 @@ func (r *UsuarioRepository) All(p ListParams) ([]*models.Usuario, int64, error) 
 
 	limit := p.Limit
 	if limit <= 0 {
-		limit = 20 // Constantes::LIMIT_DEFAULT equivalent
+		limit = 20
 	}
 	page := p.Page
 	if page <= 0 {
@@ -124,10 +144,7 @@ func (r *UsuarioRepository) All(p ListParams) ([]*models.Usuario, int64, error) 
 	}
 	offset := (page - 1) * limit
 
-	query := fmt.Sprintf(
-		"SELECT %s FROM usuario WHERE %s ORDER BY %s %s LIMIT ? OFFSET ?",
-		usuarioColumns, where, order, sort,
-	)
+	query := fmt.Sprintf("%s WHERE %s ORDER BY u.%s %s LIMIT ? OFFSET ?", usuarioSelect, where, order, sortDir)
 	args = append(args, limit, offset)
 
 	rows, err := r.db.Query(query, args...)
@@ -149,37 +166,35 @@ func (r *UsuarioRepository) All(p ListParams) ([]*models.Usuario, int64, error) 
 
 func (r *UsuarioRepository) countWithWhere(where string, args []any) (int64, error) {
 	var total int64
-	query := "SELECT COUNT(id) FROM usuario WHERE " + where
+	query := "SELECT COUNT(u.id) FROM usuario u WHERE " + where
 	err := r.db.QueryRow(query, args...).Scan(&total)
 	return total, err
 }
 
-// Count mirrors BaseListRepository::count
+// Count mirrors BaseListRepository::count.
 func (r *UsuarioRepository) Count(p ListParams) (int64, error) {
 	where, args := r.buildWhere(p)
 	return r.countWithWhere(where, args)
 }
 
-// PerfilCount is the response shape for GroupByPerfil.
-type PerfilCount struct {
-	Perfil int   `json:"perfil" db:"perfil"`
-	Total  int64 `json:"total" db:"total"`
+// PapelCount é o formato de resposta de GroupByPapel, usado no Painel para
+// mostrar quantos usuários existem em cada perfil (profissional, estudante
+// etc).
+type PapelCount struct {
+	Papel string `json:"papel" db:"papel"`
+	Total int64  `json:"total" db:"total"`
 }
 
-// GroupByPerfil mirrors UsuarioRepository::groupByPerfil, used by
-// DashController to build the admin/aluno counters by profile
-// (quantos admins, quantos alunos com login).
-func (r *UsuarioRepository) GroupByPerfil(p ListParams) ([]PerfilCount, error) {
-	where, args := r.buildWhere(p)
-	rows, err := r.db.Query("SELECT perfil, COUNT(id) AS total FROM usuario WHERE "+where+" GROUP BY perfil", args...)
+func (r *UsuarioRepository) GroupByPapel() ([]PapelCount, error) {
+	rows, err := r.db.Query("SELECT papel, COUNT(id) AS total FROM usuario WHERE deleted_at IS NULL GROUP BY papel")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []PerfilCount
+	var out []PapelCount
 	for rows.Next() {
-		var pc PerfilCount
-		if err := rows.Scan(&pc.Perfil, &pc.Total); err != nil {
+		var pc PapelCount
+		if err := rows.Scan(&pc.Papel, &pc.Total); err != nil {
 			return nil, err
 		}
 		out = append(out, pc)
@@ -187,13 +202,13 @@ func (r *UsuarioRepository) GroupByPerfil(p ListParams) ([]PerfilCount, error) {
 	return out, rows.Err()
 }
 
-// FindByID mirrors BaseListRepository::find
+// FindByID mirrors BaseListRepository::find.
 func (r *UsuarioRepository) FindByID(id int64, trashed bool) (*models.Usuario, error) {
-	where := "id = ? AND deleted_at IS NULL"
+	where := "u.id = ? AND u.deleted_at IS NULL"
 	if trashed {
-		where = "id = ?"
+		where = "u.id = ?"
 	}
-	query := fmt.Sprintf("SELECT %s FROM usuario WHERE %s LIMIT 1", usuarioColumns, where)
+	query := fmt.Sprintf("%s WHERE %s LIMIT 1", usuarioSelect, where)
 	row := r.db.QueryRow(query, id)
 	u, err := scanUsuario(row)
 	if err == sql.ErrNoRows {
@@ -205,16 +220,11 @@ func (r *UsuarioRepository) FindByID(id int64, trashed bool) (*models.Usuario, e
 	return u, nil
 }
 
-// FindByEmail is used by the login flow.
-func (r *UsuarioRepository) FindByEmail(email string, perfil int) (*models.Usuario, error) {
-	query := "SELECT " + usuarioColumns + " FROM usuario WHERE email = ? AND deleted_at IS NULL"
-	args := []any{email}
-	if perfil > 0 {
-		query += " AND perfil = ?"
-		args = append(args, perfil)
-	}
-	query += " LIMIT 1"
-	row := r.db.QueryRow(query, args...)
+// FindByEmail is used by the login flow. O e-mail é único na tabela, então
+// não precisa de mais nenhum filtro para desambiguar.
+func (r *UsuarioRepository) FindByEmail(email string) (*models.Usuario, error) {
+	query := usuarioSelect + " WHERE u.email = ? AND u.deleted_at IS NULL LIMIT 1"
+	row := r.db.QueryRow(query, email)
 	u, err := scanUsuario(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -226,9 +236,7 @@ func (r *UsuarioRepository) FindByEmail(email string, perfil int) (*models.Usuar
 }
 
 // SetSenhaByEmail overwrites the password for the account matching email,
-// used by the "esqueci minha senha" reset flow (called only after the
-// reset token has been verified). Also mirrors a fresh e-mail confirmation,
-// mostly relevant for accounts predating auto-verification.
+// used by the "esqueci minha senha" reset flow.
 func (r *UsuarioRepository) SetSenhaByEmail(email, plainSenha string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(plainSenha), bcrypt.DefaultCost)
 	if err != nil {
@@ -241,7 +249,6 @@ func (r *UsuarioRepository) SetSenhaByEmail(email, plainSenha string) error {
 	return err
 }
 
-// EmailExists mirrors the `email` unique validation rule.
 // SetEmailVerifiedByEmail marks the account as active once the person
 // confirms the token sent to their e-mail (see handlers.ConfirmarEmail).
 func (r *UsuarioRepository) SetEmailVerifiedByEmail(email string) error {
@@ -250,79 +257,6 @@ func (r *UsuarioRepository) SetEmailVerifiedByEmail(email string) error {
 		email,
 	)
 	return err
-}
-
-// FindByAlunoIDs busca usuários pelos IDs dos alunos
-// internal/repository/usuario_repository.go
-
-// FindByAlunoIDs busca usuários pelos IDs dos alunos
-// internal/repository/usuario_repository.go
-
-// FindByAlunoIDs busca usuários pelos IDs dos alunos
-func (r *UsuarioRepository) FindByAlunoIDs(alunoIDs []int64) ([]models.Usuario, error) {
-	if len(alunoIDs) == 0 {
-		return []models.Usuario{}, nil
-	}
-
-	// Constrói a query com placeholders para cada ID
-	placeholders := make([]string, len(alunoIDs))
-	args := make([]any, len(alunoIDs))
-	for i, id := range alunoIDs {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-
-	query := `SELECT id, nome, email, senha, foto, perfil, email_verified_at, remember_token, created_at, updated_at, deleted_at, aluno_id 
-	          FROM usuario WHERE aluno_id IN (` + strings.Join(placeholders, ", ") + `) AND deleted_at IS NULL`
-
-	rows, err := r.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var usuarios []models.Usuario
-	for rows.Next() {
-		var u models.Usuario
-		var senha string
-		var foto *string
-		var emailVerifiedAt, createdAt, updatedAt, deletedAt *time.Time
-		var rememberToken *string
-		var alunoID *int64
-
-		err := rows.Scan(
-			&u.ID,
-			&u.Nome,
-			&u.Email,
-			&senha,
-			&foto,
-			&u.Perfil,
-			&emailVerifiedAt,
-			&rememberToken,
-			&createdAt,
-			&updatedAt,
-			&deletedAt,
-			&alunoID,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// Atribui os campos
-		u.Foto = foto
-		u.AlunoID = alunoID
-		u.EmailVerifiedAt = emailVerifiedAt
-		u.CreatedAt = createdAt
-		u.UpdatedAt = updatedAt
-
-		usuarios = append(usuarios, u)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return usuarios, nil
 }
 
 func (r *UsuarioRepository) EmailExists(email string, excludeID int64) (bool, error) {
@@ -334,7 +268,9 @@ func (r *UsuarioRepository) EmailExists(email string, excludeID int64) (bool, er
 	return count > 0, err
 }
 
-// Create mirrors UsuarioRepository::save for a new record (isNew branch).
+// Create insere um novo usuário. A validação de qual `papel` é permitido em
+// autocadastro público (PapeisAutoCadastro) fica a cargo do handler, que
+// conhece o contexto (cadastro público vs. criado por um admin).
 func (r *UsuarioRepository) Create(u *models.Usuario, plainSenha string) (*models.Usuario, error) {
 	if u.Nome == "" {
 		return nil, apperr.New("O campo nome é obrigatório.", 422)
@@ -342,8 +278,8 @@ func (r *UsuarioRepository) Create(u *models.Usuario, plainSenha string) (*model
 	if u.Email == "" {
 		return nil, apperr.New("O campo email é obrigatório.", 422)
 	}
-	if u.Perfil <= 0 {
-		return nil, apperr.New("Perfil incorreto!", 422)
+	if !models.PapelValido(u.Papel) {
+		return nil, apperr.New("Perfil (papel) inválido.", 422)
 	}
 	if len(plainSenha) < 6 {
 		return nil, apperr.New("A senha deve ter no mínimo 6 caracteres.", 422)
@@ -361,9 +297,9 @@ func (r *UsuarioRepository) Create(u *models.Usuario, plainSenha string) (*model
 	}
 
 	res, err := r.db.Exec(
-		`INSERT INTO usuario (nome, email, senha, foto, instituicao, municipio, profissao, perfil, aluno_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-		u.Nome, u.Email, string(hash), u.Foto, u.Instituicao, u.Municipio, u.Profissao, u.Perfil, u.AlunoID,
+		`INSERT INTO usuario (nome, email, senha, foto, cpf, telefone, instituicao, curso_formacao, papel, municipio_id, gat_id, aceite_termos_em, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())`,
+		u.Nome, u.Email, string(hash), u.Foto, u.CPF, u.Telefone, u.Instituicao, u.CursoFormacao, u.Papel, u.MunicipioID, u.GatID,
 	)
 	if err != nil {
 		return nil, err
@@ -375,8 +311,8 @@ func (r *UsuarioRepository) Create(u *models.Usuario, plainSenha string) (*model
 	return r.FindByID(id, false)
 }
 
-// FindByIDs busca vários usuários de uma vez (ex.: para juntar nome/foto em
-// listas de mensagens de canal), preservando a ordem recebida.
+// FindByIDs busca vários usuários de uma vez, preservando o mapa por id —
+// útil para juntar nome/foto do responsável em listas de atividades.
 func (r *UsuarioRepository) FindByIDs(ids []int64) (map[int64]*models.Usuario, error) {
 	out := map[int64]*models.Usuario{}
 	if len(ids) == 0 {
@@ -388,7 +324,7 @@ func (r *UsuarioRepository) FindByIDs(ids []int64) (map[int64]*models.Usuario, e
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	query := fmt.Sprintf("SELECT %s FROM usuario WHERE id IN (%s)", usuarioColumns, strings.Join(placeholders, ", "))
+	query := usuarioSelect + " WHERE u.id IN (" + strings.Join(placeholders, ", ") + ")"
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -404,55 +340,9 @@ func (r *UsuarioRepository) FindByIDs(ids []int64) (map[int64]*models.Usuario, e
 	return out, rows.Err()
 }
 
-// CreateInTx mirrors Create but runs inside an existing transaction, so it
-// can be composed with other writes (e.g. AlunoRepository::createAlunoAndUser).
-func (r *UsuarioRepository) CreateInTx(tx *sql.Tx, u *models.Usuario, plainSenha string) (*models.Usuario, error) {
-	if u.Nome == "" {
-		return nil, apperr.New("O campo nome é obrigatório.", 422)
-	}
-	if u.Email == "" {
-		return nil, apperr.New("O campo email é obrigatório.", 422)
-	}
-	if u.Perfil <= 0 {
-		return nil, apperr.New("Perfil incorreto!", 422)
-	}
-	if len(plainSenha) < 6 {
-		return nil, apperr.New("A senha deve ter no mínimo 6 caracteres.", 422)
-	}
-	var count int
-	if err := tx.QueryRow("SELECT COUNT(id) FROM usuario WHERE email = ?", u.Email).Scan(&count); err != nil {
-		return nil, err
-	}
-	if count > 0 {
-		return nil, apperr.New("O campo email já está sendo utilizado.", 422)
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(plainSenha), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, err
-	}
-
-	// email_verified_at is intentionally left NULL here: the account only
-	// becomes active once the person clicks the confirmation link e-mailed
-	// to them (see handlers.sendVerificationEmail, called right after this
-	// by both the self-service cadastro and the admin "cadastrar aluno"
-	// screen). LoginHandler.Run already refuses login while this is NULL.
-	res, err := tx.Exec(
-		`INSERT INTO usuario (nome, email, senha, foto, perfil, aluno_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-		u.Nome, u.Email, string(hash), u.Foto, u.Perfil, u.AlunoID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return nil, err
-	}
-	u.ID = id
-	return u, nil
-}
-
-// Update mirrors UsuarioRepository::save for the existing-record branch.
+// Update altera os dados de perfil de um usuário (nome, foto, bio, vínculo
+// institucional). A troca de `papel` passa por AlterarPapel, não por aqui,
+// para deixar claro no código/logs quando uma permissão está sendo elevada.
 func (r *UsuarioRepository) Update(id int64, u *models.Usuario, plainSenha string) (*models.Usuario, error) {
 	existing, err := r.FindByID(id, false)
 	if err != nil {
@@ -475,38 +365,26 @@ func (r *UsuarioRepository) Update(id int64, u *models.Usuario, plainSenha strin
 	if u.Foto != nil {
 		existing.Foto = u.Foto
 	}
-	if u.Banner != nil {
-		existing.Banner = u.Banner
+	if u.CPF != nil {
+		existing.CPF = u.CPF
 	}
-	if u.Moldura != nil {
-		existing.Moldura = u.Moldura
-	}
-	if u.Descricao != nil {
-		existing.Descricao = u.Descricao
+	if u.Telefone != nil {
+		existing.Telefone = u.Telefone
 	}
 	if u.Instituicao != nil {
 		existing.Instituicao = u.Instituicao
 	}
-	if u.Municipio != nil {
-		existing.Municipio = u.Municipio
+	if u.CursoFormacao != nil {
+		existing.CursoFormacao = u.CursoFormacao
 	}
-	if u.Profissao != nil {
-		existing.Profissao = u.Profissao
+	if u.Descricao != nil {
+		existing.Descricao = u.Descricao
 	}
-	if u.Links != nil {
-		existing.Links = u.Links
+	if u.MunicipioID != nil {
+		existing.MunicipioID = u.MunicipioID
 	}
-	if u.Jogos != nil {
-		existing.Jogos = u.Jogos
-	}
-	if u.StatusCustomizado != nil {
-		existing.StatusCustomizado = u.StatusCustomizado
-	}
-	if u.Perfil > 0 {
-		existing.Perfil = u.Perfil
-	}
-	if u.AlunoID != nil {
-		existing.AlunoID = u.AlunoID
+	if u.GatID != nil {
+		existing.GatID = u.GatID
 	}
 
 	senha := existing.Senha
@@ -522,18 +400,34 @@ func (r *UsuarioRepository) Update(id int64, u *models.Usuario, plainSenha strin
 	}
 
 	_, err = r.db.Exec(
-		`UPDATE usuario SET nome = ?, email = ?, senha = ?, foto = ?, banner = ?, moldura = ?, descricao = ?,
-		 instituicao = ?, municipio = ?, profissao = ?,
-		 links = ?, jogos = ?, status_customizado = ?, perfil = ?, aluno_id = ?, updated_at = NOW()
+		`UPDATE usuario SET nome = ?, email = ?, senha = ?, foto = ?, cpf = ?, telefone = ?, instituicao = ?,
+		 curso_formacao = ?, descricao = ?, municipio_id = ?, gat_id = ?, updated_at = NOW()
 		 WHERE id = ?`,
-		existing.Nome, existing.Email, senha, existing.Foto, existing.Banner, existing.Moldura, existing.Descricao,
-		existing.Instituicao, existing.Municipio, existing.Profissao,
-		existing.Links, existing.Jogos, existing.StatusCustomizado, existing.Perfil, existing.AlunoID, id,
+		existing.Nome, existing.Email, senha, existing.Foto, existing.CPF, existing.Telefone, existing.Instituicao,
+		existing.CursoFormacao, existing.Descricao, existing.MunicipioID, existing.GatID, id,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return r.FindByID(id, false)
+}
+
+// AlterarPapel troca o perfil/papel de um usuário — usado pelo módulo
+// "👥 Gestão de usuários" para promover alguém a preceptor/coordenador/admin
+// (o "convite institucional" do planejamento).
+func (r *UsuarioRepository) AlterarPapel(id int64, papel models.Papel) error {
+	if !models.PapelValido(papel) {
+		return apperr.New("Perfil (papel) inválido.", 422)
+	}
+	res, err := r.db.Exec("UPDATE usuario SET papel = ?, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL", papel, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return apperr.New("Usuário não encontrado(a)!", 404)
+	}
+	return nil
 }
 
 // SoftDelete mirrors BaseCrudRepository::delete (sets deleted_at).
@@ -562,34 +456,22 @@ func (r *UsuarioRepository) Restore(id int64) error {
 	return nil
 }
 
-// CheckPassword compares a plaintext password against the stored bcrypt
-// hash. Laravel/PHP produces `$2y$` hashes; Go's bcrypt package treats
-// `$2y$` the same as `$2a$`/`$2b$`, so no conversion is needed.
+// CheckPassword compares a plaintext password against the stored bcrypt hash.
 func CheckPassword(hash, plain string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
 }
 
 // TouchAcesso registra "visto por último agora" pro usuário — chamado
-// periodicamente pelo frontend (heartbeat, ver PresenceHeartbeat.tsx)
-// enquanto o app está aberto numa aba. Alimenta só o indicador de presença
-// (bolinha online/offline) na aba "Membros" de uma comunidade — ver
-// ComunidadeRepository.ListMembros. Consultado por query direta (não passa
-// por scanUsuario/usuarioColumns) pra não precisar tocar em nenhum outro
-// lugar que já lista usuários.
+// periodicamente pelo frontend enquanto o app está aberto numa aba.
 func (r *UsuarioRepository) TouchAcesso(usuarioID int64) error {
 	_, err := r.db.Exec(`UPDATE usuario SET ultimo_acesso = NOW() WHERE id = ?`, usuarioID)
 	return err
 }
 
-// SetAtividade atualiza a "presença rica" do usuário (ver
-// PresencaBadge.tsx): atividade é um texto livre curto ("Jogando
-// Minecraft", "Ouvindo música"), atividadeTipo é "jogo" | "voz" | "" (vazio
-// limpa a atividade, deixando só "disponível"). Também toca ultimo_acesso,
-// já que só faz sentido setar isso com o app aberto.
-func (r *UsuarioRepository) SetAtividade(usuarioID int64, atividade, atividadeTipo *string) error {
-	_, err := r.db.Exec(
-		`UPDATE usuario SET atividade = ?, atividade_tipo = ?, ultimo_acesso = NOW() WHERE id = ?`,
-		atividade, atividadeTipo, usuarioID,
-	)
+// RegistrarAcesso grava uma linha em acesso_log (usada pelo Painel para
+// calcular o indicador de engajamento mensal) toda vez que um login é bem
+// sucedido.
+func (r *UsuarioRepository) RegistrarAcesso(usuarioID int64, ip string) error {
+	_, err := r.db.Exec(`INSERT INTO acesso_log (usuario_id, ip, created_at) VALUES (?, ?, NOW())`, usuarioID, ip)
 	return err
 }

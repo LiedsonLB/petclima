@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/petsaude/petclima-backend/internal/models"
 )
 
 // httpBaseURL converte a URL de conexão do LiveKit (ws:// ou wss://, a
@@ -46,10 +46,9 @@ type twirpListParticipantsResponse struct {
 // ListParticipants chama `RoomService.ListParticipants` diretamente via
 // REST/Twirp (POST JSON + Bearer JWT com grant roomAdmin), sem precisar do
 // pacote oficial `livekit-server-sdk-go` — mesma filosofia do token.go,
-// que já assina os JWTs de acesso na mão. Isso dá a lista REAL de quem
-// está na sala agora (áudio/vídeo), diferente da tabela em memória
-// interna (internal/realtime.Hub), que só sabia de quem tinha aberto a
-// conexão SSE de progresso — nunca de presença de voz de verdade.
+// que já assina os JWTs de acesso na mão. Dá a lista REAL de quem está na
+// sala agora (áudio/vídeo) — usada para mostrar "N participantes ao vivo"
+// nas oficinas remotas e telessaúde.
 func ListParticipants(livekitURL, apiKey, apiSecret, room string) ([]models.ParticipanteInfo, error) {
 	token, err := NewTokenBuilder(apiKey, apiSecret).
 		Identity(apiKey).
@@ -98,7 +97,6 @@ func ListParticipants(livekitURL, apiKey, apiSecret, room string) ([]models.Part
 		var meta struct {
 			Nome     string `json:"nome"`
 			Foto     string `json:"foto"`
-			Moldura  string `json:"moldura"`
 			Deafened bool   `json:"deafened"`
 		}
 		_ = json.Unmarshal([]byte(p.Metadata), &meta)
@@ -134,7 +132,6 @@ func ListParticipants(livekitURL, apiKey, apiSecret, room string) ([]models.Part
 			Identity:    p.Identity,
 			Nome:        nome,
 			Foto:        meta.Foto,
-			Moldura:     meta.Moldura,
 			MicEnabled:  micEnabled,
 			Deafened:    meta.Deafened,
 			CameraOn:    cameraOn,

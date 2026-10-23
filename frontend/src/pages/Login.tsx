@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import LegalModal, { type LegalDoc } from '../components/LegalModal';
 import { useAuth } from '../contexts/AuthContext';
-import { ApiError } from '../lib/api';
+import { mensagemDeErro } from '../lib/api';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -27,11 +27,7 @@ export default function Login() {
       await entrar(email, password, remember);
       navigate('/dashboard');
     } catch (err) {
-      if (err instanceof ApiError) {
-        setErro(err.status === 401 ? 'E-mail ou senha inválidos.' : err.message);
-      } else {
-        setErro('Não foi possível conectar ao servidor. Tente novamente.');
-      }
+      setErro(mensagemDeErro(err));
     } finally {
       setIsLoading(false);
     }
@@ -60,8 +56,8 @@ export default function Login() {
               <div className="">
                 <div className="flex items-center justify-center gap-1">
                   <img
-                    src="petsaudeclima_icon.png"
-                    alt="PET-Saúde Clima Logo"
+                    src="/petsaudeclima_icon.png"
+                    alt="PET-Saúde Clima — Territórios do Piauí"
                     className="h-16 w-auto"
                   />
                 </div>
@@ -93,9 +89,9 @@ export default function Login() {
             <div className="text-center">
               <div className="flex items-center justify-center gap-1 mb-2">
                 <img
-                  src="petsaudeclima_icon.png"
-                  alt="PET-Saúde Clima Logo"
-                  className="h-10 w-auto"
+                  src="/petsaudeclima_icon.png"
+                  alt="PET-Saúde Clima — Territórios do Piauí"
+                  className="h-20 w-auto"
                 />
               </div>
               <h2 className="text-[28px] font-bold text-[#181c1c] mb-2">Bem-vindo de volta</h2>

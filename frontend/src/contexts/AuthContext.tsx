@@ -25,6 +25,8 @@ interface AuthContextValue {
   confirmarEmail: (email: string, token: string) => Promise<void>;
   reenviarConfirmacao: (email: string) => Promise<void>;
   sair: () => void;
+  /** Atualiza o usuário em memória (ex.: depois de editar o perfil). */
+  atualizarUsuario: (u: Usuario) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -112,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         confirmarEmail,
         reenviarConfirmacao,
         sair,
+        atualizarUsuario: setUsuario,
       }}
     >
       {children}

@@ -166,7 +166,7 @@ export default function SalasAoVivo() {
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
                   <Users size={12} /> {sala.participantes_online ?? 0} conectado(s)
-                  {sala.categoria && <span> · {sala.categoria}</span>}
+                  {sala.tipo && <span> · {sala.tipo}</span>}
                 </div>
               </div>
               <button

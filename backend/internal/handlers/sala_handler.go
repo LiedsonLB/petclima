@@ -3,20 +3,26 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"sync"
 	"time"
 
-	"github.com/liedsonlb/petsaude-clima/internal/httpx"
-	"github.com/liedsonlb/petsaude-clima/internal/livekit"
-	"github.com/liedsonlb/petsaude-clima/internal/middleware"
-	"github.com/liedsonlb/petsaude-clima/internal/models"
-	"github.com/liedsonlb/petsaude-clima/internal/realtime"
-	"github.com/liedsonlb/petsaude-clima/internal/repository"
+	"github.com/petsaude/petclima-backend/internal/httpx"
+	"github.com/petsaude/petclima-backend/internal/livekit"
+	"github.com/petsaude/petclima-backend/internal/middleware"
+	"github.com/petsaude/petclima-backend/internal/models"
+	"github.com/petsaude/petclima-backend/internal/repository"
 )
 
+// SalaHandler gerencia as salas de videoconferência (LiveKit) do PET-Saúde
+// Clima: reuniões de equipe, oficinas remotas de Educação Permanente e
+// teleconsultoria. Quando a sala está vinculada a uma atividade, só entram
+// os inscritos, o responsável e a coordenação — e quem é inscrito tem a
+// presença registrada automaticamente ao entrar.
 type SalaHandler struct {
 	repo             *repository.SalaRepository
-	hub              *realtime.Hub
+	atividadeRepo    *repository.AtividadeRepository
 	liveKitAPIKey    string
 	liveKitAPISecret string
 	liveKitURL       string
@@ -25,24 +31,41 @@ type SalaHandler struct {
 
 func NewSalaHandler(
 	repo *repository.SalaRepository,
-	hub *realtime.Hub,
+	atividadeRepo *repository.AtividadeRepository,
 	apiKey, apiSecret, url, publicURL string,
 ) *SalaHandler {
 	if publicURL == "" {
 		publicURL = url
 	}
 	return &SalaHandler{
-		repo: repo, hub: hub,
+		repo: repo, atividadeRepo: atividadeRepo,
 		liveKitAPIKey: apiKey, liveKitAPISecret: apiSecret,
 		liveKitURL: url, liveKitPublicURL: publicURL,
 	}
 }
 
-// All handles GET /salas — lista as salas ativas. Assim como no NeoMeet,
-// qualquer usuário autenticado vê todas as salas abertas (não só as suas).
+func (h *SalaHandler) liveKitConfigurado() bool {
+	return h.liveKitAPIKey != "" && h.liveKitAPISecret != ""
+}
+
+// contarOnline consulta o LiveKit para saber quantas pessoas estão na sala
+// agora. Falhas viram 0 (o painel não deve quebrar porque o LiveKit está
+// fora do ar).
+func (h *SalaHandler) contarOnline(s *models.Sala) int {
+	if !h.liveKitConfigurado() {
+		return 0
+	}
+	ps, err := livekit.ListParticipants(h.liveKitURL, h.liveKitAPIKey, h.liveKitAPISecret, s.Codigo)
+	if err != nil {
+		log.Printf("livekit: erro ao listar participantes da sala %d: %v", s.ID, err)
+		return 0
+	}
+	return len(ps)
+}
+
+// All handles GET /salas — lista as salas ativas (?tipo=reuniao|oficina|telessaude).
 func (h *SalaHandler) All(w http.ResponseWriter, r *http.Request) {
-	tipo := r.URL.Query().Get("tipo")
-	list, err := h.repo.All(tipo, true)
+	list, err := h.repo.All(r.URL.Query().Get("tipo"), true)
 	if err != nil {
 		httpx.Error(w, "Erro interno.", 500)
 		return
@@ -50,12 +73,19 @@ func (h *SalaHandler) All(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []*models.Sala{}
 	}
+	var wg sync.WaitGroup
 	for _, s := range list {
-		s.ParticipantesOnline = len(h.hub.Snapshot(s.ID))
+		wg.Add(1)
+		go func(s *models.Sala) {
+			defer wg.Done()
+			s.ParticipantesOnline = h.contarOnline(s)
+		}(s)
 	}
+	wg.Wait()
 	httpx.JSON(w, 200, list)
 }
 
+// Find handles GET /salas/{id}
 func (h *SalaHandler) Find(w http.ResponseWriter, r *http.Request) {
 	id, err := idFromPath(r)
 	if err != nil {
@@ -67,19 +97,19 @@ func (h *SalaHandler) Find(w http.ResponseWriter, r *http.Request) {
 		writeAppErr(w, err)
 		return
 	}
-	s.ParticipantesOnline = len(h.hub.Snapshot(s.ID))
+	s.ParticipantesOnline = h.contarOnline(s)
 	httpx.JSON(w, 200, s)
 }
 
 type salaPayload struct {
 	Nome      string  `json:"nome"`
-	Tipo      string  `json:"tipo"` // reuniao | producao (producao mantido por compat, não usado no PET-Saúde Clima)
+	Tipo      string  `json:"tipo"` // reuniao | oficina | telessaude
 	Descricao *string `json:"descricao"`
-	Categoria *string `json:"categoria"`
 }
 
-// Save handles POST /salas — qualquer usuário autenticado pode criar uma
-// sala/comunidade (reunião em vídeo via LiveKit).
+// Save handles POST /salas (staff) — cria uma sala avulsa (reunião de
+// equipe, teleconsultoria). Salas de oficina são criadas junto com a
+// atividade remota/híbrida (ver AtividadeHandler.Save).
 func (h *SalaHandler) Save(w http.ResponseWriter, r *http.Request) {
 	var payload salaPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -95,9 +125,9 @@ func (h *SalaHandler) Save(w http.ResponseWriter, r *http.Request) {
 		payload.Nome = fmt.Sprintf("Sala de %s - %s", session.Nome, time.Now().Format("02/01 15:04"))
 	}
 	if payload.Tipo == "" {
-		payload.Tipo = "reuniao"
+		payload.Tipo = models.SalaTipoReuniao
 	}
-	created, err := h.repo.Create(payload.Nome, payload.Tipo, payload.Descricao, payload.Categoria, session.ID)
+	created, err := h.repo.Create(payload.Nome, payload.Tipo, nilIfEmpty(payload.Descricao), nil, session.ID)
 	if err != nil {
 		writeAppErr(w, err)
 		return
@@ -106,7 +136,7 @@ func (h *SalaHandler) Save(w http.ResponseWriter, r *http.Request) {
 }
 
 // Encerrar handles POST /salas/{id}/encerrar — apenas quem criou a sala ou
-// um admin pode encerrá-la.
+// um administrador pode encerrá-la.
 func (h *SalaHandler) Encerrar(w http.ResponseWriter, r *http.Request) {
 	id, err := idFromPath(r)
 	if err != nil {
@@ -127,14 +157,36 @@ func (h *SalaHandler) Encerrar(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, "Erro interno.", 500)
 		return
 	}
-	h.hub.ClearSala(id)
 	httpx.Success(w, "Sala encerrada.", 200)
 }
 
+// podeEntrar aplica a regra de acesso: salas avulsas são abertas a qualquer
+// usuário logado; salas de atividade exigem inscrição, ser o responsável ou
+// fazer parte da coordenação. Devolve também a atividade (quando houver) e
+// se a pessoa é inscrita, para o registro automático de presença.
+func (h *SalaHandler) podeEntrar(sala *models.Sala, u *models.Usuario) (ok bool, atividadeID int64, inscrito bool, err error) {
+	if sala.AtividadeID == nil {
+		return true, 0, false, nil
+	}
+	atividadeID = *sala.AtividadeID
+	insc, err := h.atividadeRepo.FindInscricao(atividadeID, u.ID)
+	if err != nil {
+		return false, atividadeID, false, err
+	}
+	inscrito = insc != nil
+	if inscrito || u.IsCoordenadorOuMais() {
+		return true, atividadeID, inscrito, nil
+	}
+	atividade, err := h.atividadeRepo.FindByID(atividadeID)
+	if err != nil {
+		return false, atividadeID, false, err
+	}
+	return atividade.ResponsavelID == u.ID, atividadeID, false, nil
+}
+
 // Entrar handles POST /salas/{id}/entrar — gera o token de acesso LiveKit
-// (JWT) para o usuário autenticado entrar na room correspondente. Mesma
-// ideia do token.controller.js do NeoMeet (AccessToken + addGrant), só que
-// em Go e sem depender do SDK oficial (ver internal/livekit/token.go).
+// (JWT) para o usuário autenticado entrar na room correspondente (ver
+// internal/livekit/token.go, assinatura HS256 sem depender do SDK oficial).
 func (h *SalaHandler) Entrar(w http.ResponseWriter, r *http.Request) {
 	id, err := idFromPath(r)
 	if err != nil {
@@ -155,25 +207,34 @@ func (h *SalaHandler) Entrar(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, "Não autenticado.", 401)
 		return
 	}
+	if !h.liveKitConfigurado() {
+		httpx.Error(w, "A videoconferência ainda não foi configurada neste ambiente.", 503)
+		return
+	}
 
-	identity := fmt.Sprintf("%d", session.ID)
-	// Dentro de Entrar(), antes de .Sign():
-	metadataJSON := ""
+	ok, atividadeID, inscrito, err := h.podeEntrar(sala, session)
+	if err != nil {
+		writeAppErr(w, err)
+		return
+	}
+	if !ok {
+		httpx.Error(w, "Inscreva-se na atividade para entrar na sala virtual.", 403)
+		return
+	}
+
 	meta := map[string]string{"nome": session.Nome}
 	if session.Foto != nil && *session.Foto != "" {
 		meta["foto"] = *session.Foto
 	}
-	if session.Moldura != nil && *session.Moldura != "" {
-		meta["moldura"] = *session.Moldura
-	}
+	metadataJSON := ""
 	if b, err := json.Marshal(meta); err == nil {
 		metadataJSON = string(b)
 	}
 
 	token, err := livekit.NewTokenBuilder(h.liveKitAPIKey, h.liveKitAPISecret).
-		Identity(identity).
+		Identity(fmt.Sprintf("%d", session.ID)).
 		Name(session.Nome).
-		Metadata(metadataJSON). // ← ADICIONAR ESTA LINHA
+		Metadata(metadataJSON).
 		TTL(4 * time.Hour).
 		Grant(livekit.VideoGrant{
 			RoomJoin:             true,
@@ -189,6 +250,15 @@ func (h *SalaHandler) Entrar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Presença automática: quem está inscrito e entra na sala da própria
+	// atividade é marcado como presente (alimenta "profissionais
+	// capacitados" no Painel).
+	if inscrito && atividadeID > 0 {
+		if err := h.atividadeRepo.MarcarPresenca(atividadeID, session.ID, true); err != nil {
+			log.Printf("erro ao registrar presença automática: %v", err)
+		}
+	}
+
 	httpx.JSON(w, 200, map[string]any{
 		"token": token,
 		"url":   h.liveKitPublicURL,
@@ -197,149 +267,9 @@ func (h *SalaHandler) Entrar(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------------------------------------------------------------------
-// PROGRESSO EM TEMPO REAL (salas do tipo "producao")
-// ---------------------------------------------------------------------
-
-type progressoPayload struct {
-	PassoAtual  int   `json:"passo_atual"`
-	TotalPassos int   `json:"total_passos"`
-	PerguntaID  int64 `json:"pergunta_id"`
-	Concluido   bool  `json:"concluido"`
-
-	// Campos extras usados pelo dashboard ao vivo do professor.
-	MovimentoNome  string `json:"movimento_nome"`
-	PerguntaTitulo string `json:"pergunta_titulo"`
-	Digitando      bool   `json:"digitando"`
-	TrechoAtual    string `json:"trecho_atual"`
-}
-
-// Progresso handles POST /salas/{id}/progresso — chamado pelo frontend do
-// aluno a cada passo/pergunta respondida dentro de uma sala de produção.
-// Publica o evento no hub, que repassa via SSE para quem estiver assistindo
-// (o admin, em /salas/{id}/eventos).
-func (h *SalaHandler) Progresso(w http.ResponseWriter, r *http.Request) {
-	id, err := idFromPath(r)
-	if err != nil {
-		httpx.Error(w, "Id inválido.", 422)
-		return
-	}
-	var payload progressoPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		httpx.Error(w, "Requisição inválida.", 422)
-		return
-	}
-	session := middleware.UserFromContext(r)
-	if session == nil {
-		httpx.Error(w, "Não autenticado.", 401)
-		return
-	}
-
-	h.hub.Publish(models.ProgressoEvento{
-		Tipo:           models.EventoProgresso,
-		SalaID:         id,
-		UsuarioID:      session.ID,
-		NomeUsuario:    session.Nome,
-		Foto:           session.Foto,
-		IsAdmin:        session.IsAdmin(),
-		MovimentoNome:  payload.MovimentoNome,
-		PerguntaTitulo: payload.PerguntaTitulo,
-		Digitando:      payload.Digitando,
-		TrechoAtual:    payload.TrechoAtual,
-		PassoAtual:     payload.PassoAtual,
-		TotalPassos:    payload.TotalPassos,
-		PerguntaID:     payload.PerguntaID,
-		Concluido:      payload.Concluido,
-		AtualizadoEm:   time.Now(),
-	})
-
-	httpx.Success(w, "Progresso registrado.", 200)
-}
-
-// Eventos handles GET /salas/{id}/eventos — stream SSE com o progresso de
-// todos os participantes da sala. Pensado para a tela de monitoramento do
-// admin ("ver todo mundo produzindo em tempo real").
-func (h *SalaHandler) Eventos(w http.ResponseWriter, r *http.Request) {
-	id, err := idFromPath(r)
-	if err != nil {
-		httpx.Error(w, "Id inválido.", 422)
-		return
-	}
-	session := middleware.UserFromContext(r)
-	if session == nil {
-		httpx.Error(w, "Não autenticado.", 401)
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		httpx.Error(w, "Streaming não suportado.", 500)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.WriteHeader(http.StatusOK)
-
-	writeEvent := func(ev models.ProgressoEvento) {
-		body, _ := json.Marshal(ev)
-		fmt.Fprintf(w, "data: %s\n\n", body)
-		flusher.Flush()
-	}
-
-	// Estado atual primeiro, para quem abre a tela "no meio" da sala: quem
-	// já está conectado (presença) e o último progresso conhecido de cada
-	// um.
-	for _, p := range h.hub.Participantes(id) {
-		writeEvent(models.ProgressoEvento{
-			Tipo: models.EventoEntrou, SalaID: id,
-			UsuarioID: p.UsuarioID, NomeUsuario: p.NomeUsuario, Foto: p.Foto, IsAdmin: p.IsAdmin,
-		})
-	}
-	for _, ev := range h.hub.Snapshot(id) {
-		writeEvent(ev)
-	}
-
-	ch, unsubscribe := h.hub.Subscribe(id, realtime.Participante{
-		UsuarioID: session.ID, NomeUsuario: session.Nome, Foto: session.Foto, IsAdmin: session.IsAdmin(),
-	})
-	defer unsubscribe()
-
-	ctx := r.Context()
-	keepAlive := time.NewTicker(20 * time.Second)
-	defer keepAlive.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case ev, open := <-ch:
-			if !open {
-				return
-			}
-			writeEvent(ev)
-		case <-keepAlive.C:
-			fmt.Fprint(w, ": ping\n\n")
-			flusher.Flush()
-		}
-	}
-}
-
-type iniciarProducaoPayload struct {
-	GeneroTextualID int64  `json:"genero_textual_id"`
-	TituloPrefixo   string `json:"titulo_prefixo"`
-}
-
-// IniciarProducao handles POST /salas/{id}/iniciar-producao — só o
-// professor (admin) que criou a sala (ou outro admin) pode disparar. Cria
-// uma producao_textual individual para cada aluno atualmente conectado ao
-// canal SSE da sala (internal/realtime.Hub.Participantes — ou seja, quem
-// está mesmo na videochamada agora, não "todo aluno cadastrado") e publica
-// um evento "iniciar_producao" endereçado a cada um, para o front abrir
-// automaticamente o painel de escrita dentro da sala.
-func (h *SalaHandler) IniciarProducao(w http.ResponseWriter, r *http.Request) {
+// Participantes handles GET /salas/{id}/participantes — quem está na sala
+// agora, direto do LiveKit.
+func (h *SalaHandler) Participantes(w http.ResponseWriter, r *http.Request) {
 	id, err := idFromPath(r)
 	if err != nil {
 		httpx.Error(w, "Id inválido.", 422)
@@ -350,35 +280,13 @@ func (h *SalaHandler) IniciarProducao(w http.ResponseWriter, r *http.Request) {
 		writeAppErr(w, err)
 		return
 	}
-	session := middleware.UserFromContext(r)
-	if session == nil || (!session.IsAdmin() && session.ID != sala.CriadoPor) {
-		httpx.Error(w, "Você não tem permissão para iniciar a produção nessa sala.", 403)
-		return
-	}
-	if sala.Tipo != models.SalaTipoProducao {
-		httpx.Error(w, "Essa sala não é do tipo produção.", 422)
-		return
-	}
-
-	var payload iniciarProducaoPayload
-	_ = json.NewDecoder(r.Body).Decode(&payload)
-	generoID := payload.GeneroTextualID
-	if generoID == 0 && sala.GeneroTextualID != nil {
-		generoID = *sala.GeneroTextualID
-	}
-
-	criadas := 0
-	for _, p := range h.hub.Participantes(id) {
-		if p.IsAdmin {
-			continue // o professor não recebe produção
+	lista := []models.ParticipanteInfo{}
+	if h.liveKitConfigurado() {
+		if ps, err := livekit.ListParticipants(h.liveKitURL, h.liveKitAPIKey, h.liveKitAPISecret, sala.Codigo); err != nil {
+			log.Printf("livekit: erro ao listar participantes da sala %d: %v", sala.ID, err)
+		} else if ps != nil {
+			lista = ps
 		}
-		criadas++
-		h.hub.Publish(models.ProgressoEvento{
-			Tipo: models.EventoIniciarProducao, SalaID: id,
-			UsuarioID: p.UsuarioID, NomeUsuario: p.NomeUsuario, Foto: p.Foto,
-			TotalPassos: 0, AtualizadoEm: time.Now(),
-		})
 	}
-
-	httpx.JSON(w, 200, map[string]any{"message": "Produção iniciada.", "alunos_notificados": criadas})
+	httpx.JSON(w, 200, map[string]any{"sala_id": sala.ID, "total": len(lista), "participantes": lista})
 }

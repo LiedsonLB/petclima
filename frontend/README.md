@@ -21,12 +21,14 @@ do GAT 5.
 | `/dashboard` | Visão geral de KPIs e etapa atual | Todas |
 | `/cronograma` | Linha do tempo dos 4 semestres | Todas |
 | `/comunicacao` | Plano Transversal + Kit de Comunicação Regional | Semestre 1 |
-| `/formacao` | Oficinas de letramento em saúde / fake news | Semestre 2 |
-| `/ava` | Cursos autoinstrucionais (AVA) | Semestre 3 |
+| `/formacao` | Educação Permanente: oficinas e acesso ao AVA | Semestre 2 |
+| `/formacao/ava` | Cursos autoinstrucionais (AVA), dentro de Educação Permanente | Semestre 3 |
 | `/mapa` | Municípios e macrorregiões atendidos | Semestre 4 |
 | `/relatorios` | Indicadores de tráfego e engajamento | Semestre 3 |
 | `/repositorio` | Entrega final à SESAPI | Semestre 4 |
 | `/configuracoes` | Tema claro/escuro, sobre o GAT 5 | — |
+
+O endereço antigo `/ava` redireciona para `/formacao/ava`.
 
 ## Rodando localmente
 

@@ -6,22 +6,18 @@ import {
 } from 'lucide-react';
 import LegalModal, { type LegalDoc } from '../components/LegalModal';
 import { useAuth } from '../contexts/AuthContext';
-import { ApiError } from '../lib/api';
+import { listarMunicipios, mensagemDeErro, type Papel } from '../lib/api';
+import { useRecurso } from '../lib/useRecurso';
 
-// Mapeia o perfil escolhido no formulário para o valor numérico aceito pelo
-// backend (models.PerfilEstudante/PerfilProfissional/PerfilGestor — ver
-// models.PerfisAutoCadastro em usuario.go). "Comunidade" entra como usuário
-// comum (Estudante), sem privilégios adicionais.
-const PERFIL_MAP: Record<string, number> = {
-  pesquisador: 3, // PerfilProfissional
-  estudante: 2,   // PerfilEstudante
-  gestor: 4,      // PerfilGestor
-  comunidade: 2,  // PerfilEstudante (usuário cadastrado comum)
-};
+// O valor de cada opção do <select> de perfil já é o `papel` aceito pelo
+// backend no autocadastro (models.PapeisAutoCadastro). Papéis institucionais
+// (preceptor, coordenador, admin) são atribuídos por um administrador.
+const PAPEIS_CADASTRO: Papel[] = ['comunidade', 'estudante', 'pesquisador', 'profissional', 'gestor'];
 
 export default function Cadastro() {
   const navigate = useNavigate();
   const { cadastrar } = useAuth();
+  const { data: municipios, erro: erroMunicipios } = useRecurso(listarMunicipios);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -63,18 +59,15 @@ export default function Cadastro() {
         email: formData.email,
         senha: formData.senha,
         instituicao: formData.instituicao,
-        municipio: formData.municipio,
-        profissao: formData.curso,
-        perfil: PERFIL_MAP[formData.perfil] ?? 2,
+        municipio_id: formData.municipio ? Number(formData.municipio) : null,
+        curso_formacao: formData.curso,
+        papel: PAPEIS_CADASTRO.includes(formData.perfil as Papel) ? (formData.perfil as Papel) : 'comunidade',
+        aceite_termos: acceptTerms,
       });
       setSucesso(true);
       setTimeout(() => navigate('/login'), 2500);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setErro(err.message);
-      } else {
-        setErro('Não foi possível conectar ao servidor. Tente novamente.');
-      }
+      setErro(mensagemDeErro(err));
     } finally {
       setIsLoading(false);
     }
@@ -97,8 +90,8 @@ export default function Cadastro() {
             <div className="">
               <div className="flex items-center justify-center gap-1">
                 <img
-                  src="petsaudeclima_icon.png"
-                  alt="PET-Saúde Clima Logo"
+                  src="/petsaudeclima_icon.png"
+                  alt="PET-Saúde Clima — Territórios do Piauí"
                   className="h-10 w-auto"
                 />
               </div>
@@ -139,8 +132,8 @@ export default function Cadastro() {
             <div className="w-9 h-9 rounded-xl bg-[#004e47]/10 flex items-center justify-center">
               <div className="flex items-center justify-center gap-1 mb-2">
                 <img
-                  src="petsaudeclima_icon.png"
-                  alt="PET-Saúde Clima Logo"
+                  src="/petsaudeclima_icon.png"
+                  alt="PET-Saúde Clima — Territórios do Piauí"
                   className="h-10 w-auto"
                 />
               </div>
@@ -153,8 +146,8 @@ export default function Cadastro() {
 
           <div className="flex items-center gap-4 mb-6">
             <img
-              src="petsaudeclima_icon.png"
-              alt="PET-Saúde Clima Logo"
+              src="/petsaudeclima_icon.png"
+              alt="PET-Saúde Clima — Territórios do Piauí"
               className="h-16 w-auto"
             />
             <div>
@@ -216,15 +209,21 @@ export default function Cadastro() {
                 <label className="block text-xs font-semibold text-[#3e4947] mb-1.5">Município</label>
                 <div className="relative">
                   <MapPinned size={18} className="text-[#3e4947]/60 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
+                  <select
                     name="municipio"
-                    type="text"
                     required
-                    placeholder="Ex: Teresina, Parnaíba..."
                     value={formData.municipio}
                     onChange={handleChange}
-                    className="auth-input w-full pl-10"
-                  />
+                    className="auth-input w-full pl-10 appearance-none"
+                  >
+                    <option value="" disabled>
+                      {municipios ? 'Selecione o município' : erroMunicipios ? 'Não foi possível carregar' : 'Carregando...'}
+                    </option>
+                    {(municipios ?? []).map((m) => (
+                      <option key={m.id} value={m.id}>{m.nome}/{m.uf}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={18} className="text-[#3e4947]/60 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
             </div>
@@ -259,6 +258,7 @@ export default function Cadastro() {
                   <option value="" disabled>Selecione seu perfil</option>
                   <option value="pesquisador">Pesquisador</option>
                   <option value="estudante">Estudante / Bolsista</option>
+                  <option value="profissional">Profissional de saúde / ACS</option>
                   <option value="gestor">Gestor Público</option>
                   <option value="comunidade">Membro da Comunidade</option>
                 </select>

@@ -249,7 +249,7 @@ export default function Landing() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <img src="petsaudeclima_icon.png" alt="PET-Saúde Clima Logo" style={{ height: 32 }} />
+            <img src="/petsaudeclima_icon.png" alt="PET-Saúde Clima — Territórios do Piauí" style={{ height: 48, width: 48, objectFit: 'contain', flexShrink: 0 }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary)' }}>PET-Saúde Clima</span>
           </div>
 
@@ -416,7 +416,7 @@ export default function Landing() {
       <footer style={{ borderTop: '1px solid var(--border)', padding: '40px 20px', background: 'var(--bg-card)' }}>
         <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 20, alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <img src="petsaudeclima_icon.png" alt="PET-Saúde Clima Logo" style={{ height: 24 }} />
+            <img src="/petsaudeclima_icon.png" alt="PET-Saúde Clima — Territórios do Piauí" style={{ height: 48, width: 48, objectFit: 'contain', flexShrink: 0 }} />
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>© 2026 PET-Saúde Clima — Territórios do Piauí</span>
           </div>
           <div style={{ display: 'flex', gap: 20 }}>

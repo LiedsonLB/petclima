@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/liedsonlb/petsaude-clima/internal/apperr"
-	"github.com/liedsonlb/petsaude-clima/internal/models"
+	"github.com/petsaude/petclima-backend/internal/apperr"
+	"github.com/petsaude/petclima-backend/internal/models"
 )
 
 type TokenRepository struct {
@@ -136,11 +136,11 @@ func (r *TokenRepository) Check(usuarioID int64, token string, appCodigo string)
 	return t, nil
 }
 
-// Revoke invalida (status inativo) o token de um usuário — usado no logout,
-// para que o token deixe de valer no servidor e não só no navegador.
+// Revoke invalida o token do usuário (logout). Idempotente: token já
+// inativo/inexistente não gera erro.
 func (r *TokenRepository) Revoke(usuarioID int64, token string) error {
 	_, err := r.db.Exec(
-		"UPDATE aplicacao_acesso_token SET status = ? WHERE usuario_id = ? AND token = ?",
+		"UPDATE aplicacao_acesso_token SET status = ?, updated_at = NOW() WHERE usuario_id = ? AND token = ?",
 		models.StatusInativo, usuarioID, token,
 	)
 	return err

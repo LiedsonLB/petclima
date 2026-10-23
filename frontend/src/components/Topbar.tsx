@@ -7,7 +7,7 @@ const routeTitles: Record<string, { title: string; subtitle: string }> = {
   '/cronograma': { title: 'Cronograma', subtitle: 'Entregas por semestre, Set/2026 a Ago/2028' },
   '/comunicacao': { title: 'Comunicação', subtitle: 'Plano transversal e kit de comunicação regional' },
   '/formacao': { title: 'Educação Permanente', subtitle: 'Oficinas de letramento em saúde e combate às fake news' },
-  '/ava': { title: 'AVA · Cursos', subtitle: 'Ambiente Virtual de Aprendizagem — cursos autoinstrucionais' },
+  '/formacao/ava': { title: 'AVA · Cursos', subtitle: 'Educação Permanente · Ambiente Virtual de Aprendizagem' },
   '/mapa': { title: 'Mapa de Alcance', subtitle: 'Municípios e macrorregiões atendidos no Piauí' },
   '/relatorios': { title: 'Relatórios', subtitle: 'Indicadores de tráfego, acessos e engajamento' },
   '/repositorio': { title: 'Repositório', subtitle: 'Tecnologias sociais e digitais entregues à SESAPI' },

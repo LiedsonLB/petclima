@@ -50,9 +50,9 @@ export default function EsqueciSenha() {
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1 mb-3">
                   <img
-                    src="petsaudeclima_icon.png"
-                    alt="PET-Saúde Clima Logo"
-                    className="h-12 w-auto"
+                    src="/petsaudeclima_icon.png"
+                    alt="PET-Saúde Clima — Territórios do Piauí"
+                    className="h-24 w-auto"
                   />
                 </div>
                 <h1 className="text-[26px] font-bold text-[#181c1c] mb-2">

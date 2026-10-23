@@ -2,200 +2,149 @@ package middleware
 
 import (
 	"context"
-	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/liedsonlb/petsaude-clima/internal/apperr"
-	"github.com/liedsonlb/petsaude-clima/internal/httpx"
-	"github.com/liedsonlb/petsaude-clima/internal/models"
-	"github.com/liedsonlb/petsaude-clima/internal/repository"
+	"github.com/petsaude/petclima-backend/internal/apperr"
+	"github.com/petsaude/petclima-backend/internal/httpx"
+	"github.com/petsaude/petclima-backend/internal/models"
+	"github.com/petsaude/petclima-backend/internal/repository"
 )
 
 type ctxKey string
 
 const userCtxKey ctxKey = "usuario_session"
 
-// SessionCookieName é o cookie HttpOnly que carrega a sessão do portal.
-// Valor: "{usuario_id}:{token}:{codigo_da_aplicacao}" — o mesmo formato do
-// header legado `TokenUser`, só que guardado pelo navegador e invisível
-// para JavaScript (protege o token contra roubo via XSS).
+// SessionCookieName é o cookie HttpOnly que guarda a sessão no navegador.
+// O frontend não enxerga o valor (só o envia com credentials: 'include').
 const SessionCookieName = "pet_session"
 
-// Credentials são as credenciais extraídas de uma requisição.
-type Credentials struct {
-	UserID     int64
-	Token      string
-	AppKey     string
-	FromCookie bool
-}
-
-// ExtractCredentials lê a sessão do cookie HttpOnly (preferencial) ou, na
-// falta dele, do header legado `TokenUser` (clientes que não são o site).
-func ExtractCredentials(r *http.Request) (*Credentials, bool) {
-	raw := ""
-	fromCookie := false
+// SessionParts extrai (usuarioID, token, appKey) da sessão da requisição.
+// Prioridade: cookie HttpOnly `pet_session` (site) e, se não houver, o header
+// `TokenUser` (apps móveis/integrações). Ambos usam o formato
+// "userId:token:appKey".
+func SessionParts(r *http.Request) (int64, string, string, bool) {
+	raw := r.Header.Get("TokenUser")
 	if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" {
-		raw, fromCookie = c.Value, true
-	} else {
-		raw = r.Header.Get("TokenUser")
+		raw = c.Value
 	}
-
 	parts := strings.Split(raw, ":")
 	if len(parts) < 3 {
-		return nil, false
+		return 0, "", "", false
 	}
 	userID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || userID <= 0 || parts[1] == "" || parts[2] == "" {
-		return nil, false
+	token, appKey := parts[1], parts[2]
+	if err != nil || userID <= 0 || token == "" || appKey == "" {
+		return 0, "", "", false
 	}
-	return &Credentials{UserID: userID, Token: parts[1], AppKey: parts[2], FromCookie: fromCookie}, true
+	return userID, token, appKey, true
 }
 
-// IsSecureRequest diz se o cookie deve ir com o atributo Secure: sim quando
-// o site é servido por HTTPS (FRONTEND_URL https:// ou proxy repassando
-// X-Forwarded-Proto=https). Em desenvolvimento (http://localhost) fica falso.
-func IsSecureRequest(r *http.Request, frontendURL string) bool {
-	return strings.HasPrefix(strings.ToLower(frontendURL), "https://") ||
-		r.TLS != nil ||
-		strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+// authenticate valida a sessão (cookie ou header TokenUser) contra
+// aplicacao_acesso_token e devolve o usuário logado. Retorna (nil, erro)
+// quando a sessão está ausente/inválida/expirada. Falhas de credencial viram
+// sempre 401 — é esse status que o frontend usa para derrubar a sessão local.
+func authenticate(r *http.Request, usuarioRepo *repository.UsuarioRepository, tokenRepo *repository.TokenRepository) (*models.Usuario, *apperr.AppError) {
+	userID, token, appKey, ok := SessionParts(r)
+	if !ok {
+		return nil, apperr.New("Token inválido!", 401)
+	}
+
+	if _, err := tokenRepo.Check(userID, token, appKey); err != nil {
+		if ae, ok := apperr.As(err); ok {
+			if ae.Status == 401 || ae.Status == 403 {
+				return nil, apperr.New(ae.Message, 401)
+			}
+			return nil, ae
+		}
+		return nil, apperr.New("Erro ao validar token.", 500)
+	}
+
+	usuario, err := usuarioRepo.FindByID(userID, false)
+	if err != nil {
+		return nil, apperr.New("Usuário não encontrado(a)!", 401)
+	}
+	return usuario, nil
 }
 
-// SetSessionCookie grava a sessão em um cookie HttpOnly. Tokens "longos"
-// (opção "manter conectado") duram 30 dias; os curtos viram cookie de
-// sessão e somem ao fechar o navegador.
-func SetSessionCookie(w http.ResponseWriter, userID int64, token, appKey string, long, secure bool) {
-	c := &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    fmt.Sprintf("%d:%s:%s", userID, token, appKey),
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
-	}
-	if long {
-		c.MaxAge = models.TempoLimiteLongoAPIMinutes * 60
-	}
-	http.SetCookie(w, c)
-}
-
-// ClearSessionCookie apaga o cookie de sessão no navegador.
-func ClearSessionCookie(w http.ResponseWriter, secure bool) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
-	})
-}
-
-func hostnameOf(hostport string) string {
-	if h, _, err := net.SplitHostPort(hostport); err == nil {
-		return strings.ToLower(h)
-	}
-	return strings.ToLower(hostport)
-}
-
-// OriginAllowed é a defesa contra CSRF para requisições autenticadas por
-// cookie e que alteram dados (POST/PUT/PATCH/DELETE): o header Origin, que
-// o navegador sempre envia nesses métodos, precisa ser do próprio site (ou
-// do FRONTEND_URL). Requisições sem Origin não vêm de um navegador, que é
-// o único cliente capaz de anexar o cookie automaticamente.
-func OriginAllowed(r *http.Request, frontendURL string) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	host := hostnameOf(u.Host)
-	if host == hostnameOf(r.Host) {
-		return true
-	}
-	if f, err := url.Parse(frontendURL); err == nil && f.Host != "" && host == hostnameOf(f.Host) {
-		return true
-	}
-	return false
-}
-
-func isUnsafeMethod(m string) bool {
-	switch m {
-	case http.MethodGet, http.MethodHead, http.MethodOptions:
-		return false
-	}
-	return true
-}
-
-// RequireAuth valida a sessão (cookie HttpOnly ou header legado TokenUser)
-// contra aplicacao_acesso_token. Qualquer falha de autenticação responde
-// 401 — o frontend usa isso para mandar o usuário de volta ao login — e,
-// se a sessão veio de cookie, o cookie inválido é apagado.
-func RequireAuth(usuarioRepo *repository.UsuarioRepository, tokenRepo *repository.TokenRepository, frontendURL string) func(http.Handler) http.Handler {
+// RequireAuth exige um usuário autenticado (área logada da plataforma).
+func RequireAuth(usuarioRepo *repository.UsuarioRepository, tokenRepo *repository.TokenRepository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cred, ok := ExtractCredentials(r)
-			if !ok {
-				httpx.Error(w, "Não autenticado!", 401)
+			usuario, aerr := authenticate(r, usuarioRepo, tokenRepo)
+			if aerr != nil {
+				httpx.Error(w, aerr.Message, aerr.Status)
 				return
 			}
-
-			if cred.FromCookie && isUnsafeMethod(r.Method) && !OriginAllowed(r, frontendURL) {
-				httpx.Error(w, "Origem não permitida.", 403)
-				return
-			}
-
-			if _, err := tokenRepo.Check(cred.UserID, cred.Token, cred.AppKey); err != nil {
-				ae, isApp := apperr.As(err)
-				if !isApp {
-					httpx.Error(w, "Erro ao validar token.", 500)
-					return
-				}
-				if cred.FromCookie {
-					ClearSessionCookie(w, IsSecureRequest(r, frontendURL))
-				}
-				httpx.Error(w, ae.Message, 401)
-				return
-			}
-
-			usuario, err := usuarioRepo.FindByID(cred.UserID, false)
-			if err != nil {
-				if cred.FromCookie {
-					ClearSessionCookie(w, IsSecureRequest(r, frontendURL))
-				}
-				httpx.Error(w, "Usuário não encontrado(a)!", 401)
-				return
-			}
-
 			ctx := context.WithValue(r.Context(), userCtxKey, usuario)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// RequireAdmin mirrors the `if(!$this->userSession->is_admin) throw ...`
-// guards sprinkled through the Laravel controllers (GrauInstrucaoController,
-// InstituicaoEnsinoController, GeneroTextualController's publish endpoints,
-// etc). Must be chained after RequireAuth.
+// OptionalAuth serve endpoints públicos (portal, biblioteca aberta) que
+// ganham informação extra quando há alguém logado — por exemplo, marcar em
+// quais atividades o usuário já está inscrito. Token ausente ou inválido
+// simplesmente segue como visitante (ROLE_PUBLIC do planejamento).
+func OptionalAuth(usuarioRepo *repository.UsuarioRepository, tokenRepo *repository.TokenRepository) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, _, _, ok := SessionParts(r); ok {
+				if usuario, aerr := authenticate(r, usuarioRepo, tokenRepo); aerr == nil {
+					ctx := context.WithValue(r.Context(), userCtxKey, usuario)
+					r = r.WithContext(ctx)
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func forbid(w http.ResponseWriter) {
+	httpx.Error(w, "Você não tem permissão para acessar esse recurso.", 403)
+}
+
+// RequireAdmin: somente papel "admin". Deve vir depois de RequireAuth.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := UserFromContext(r)
 		if u == nil || !u.IsAdmin() {
-			httpx.Error(w, "Você não tem permissão para acessar esse recurso.", 403)
+			forbid(w)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// UserFromContext mirrors ApiController::getUserSession()
+// RequireCoordenador: coordenador ou admin (indicadores, relatórios,
+// gestão de territórios/GATs). Deve vir depois de RequireAuth.
+func RequireCoordenador(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := UserFromContext(r)
+		if u == nil || !u.IsCoordenadorOuMais() {
+			forbid(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireStaff: preceptor, coordenador ou admin — quem pode publicar
+// materiais/notícias, criar cursos e registrar atividades. Deve vir depois
+// de RequireAuth.
+func RequireStaff(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := UserFromContext(r)
+		if u == nil || !u.IsStaff() {
+			forbid(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// UserFromContext devolve o usuário autenticado (ou nil se anônimo).
 func UserFromContext(r *http.Request) *models.Usuario {
 	u, _ := r.Context().Value(userCtxKey).(*models.Usuario)
 	return u
