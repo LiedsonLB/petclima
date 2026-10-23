@@ -56,8 +56,8 @@ export default function Login() {
               <div className="">
                 <div className="flex items-center justify-center gap-1">
                   <img
-                    src="petsaudeclima_icon.png"
-                    alt="PET-Saúde Clima Logo"
+                    src="/logo-pet.png"
+                    alt="PET-Saúde Clima — Territórios do Piauí"
                     className="h-16 w-auto"
                   />
                 </div>
@@ -89,9 +89,9 @@ export default function Login() {
             <div className="text-center">
               <div className="flex items-center justify-center gap-1 mb-2">
                 <img
-                  src="petsaudeclima_icon.png"
-                  alt="PET-Saúde Clima Logo"
-                  className="h-10 w-auto"
+                  src="/logo-pet.png"
+                  alt="PET-Saúde Clima — Territórios do Piauí"
+                  className="h-20 w-auto"
                 />
               </div>
               <h2 className="text-[28px] font-bold text-[#181c1c] mb-2">Bem-vindo de volta</h2>

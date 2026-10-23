@@ -90,8 +90,8 @@ export default function Cadastro() {
             <div className="">
               <div className="flex items-center justify-center gap-1">
                 <img
-                  src="petsaudeclima_icon.png"
-                  alt="PET-Saúde Clima Logo"
+                  src="/logo-pet.png"
+                  alt="PET-Saúde Clima — Territórios do Piauí"
                   className="h-10 w-auto"
                 />
               </div>
@@ -132,8 +132,8 @@ export default function Cadastro() {
             <div className="w-9 h-9 rounded-xl bg-[#004e47]/10 flex items-center justify-center">
               <div className="flex items-center justify-center gap-1 mb-2">
                 <img
-                  src="petsaudeclima_icon.png"
-                  alt="PET-Saúde Clima Logo"
+                  src="/logo-pet.png"
+                  alt="PET-Saúde Clima — Territórios do Piauí"
                   className="h-10 w-auto"
                 />
               </div>
@@ -146,8 +146,8 @@ export default function Cadastro() {
 
           <div className="flex items-center gap-4 mb-6">
             <img
-              src="petsaudeclima_icon.png"
-              alt="PET-Saúde Clima Logo"
+              src="/logo-pet.png"
+              alt="PET-Saúde Clima — Territórios do Piauí"
               className="h-16 w-auto"
             />
             <div>

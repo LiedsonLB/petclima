@@ -82,7 +82,7 @@ export default function Sidebar() {
       <div style={{ padding: '24px 20px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <NavLink to="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <img src="petsaudeclima_icon.png" alt="PET-Saúde Clima Logo" style={{ height: 32 }} />
+            <img src="/logo-pet.png" alt="PET-Saúde Clima — Territórios do Piauí" style={{ height: 48, width: 48, objectFit: 'contain', flexShrink: 0 }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary)' }}>PET-Saúde Clima</span>
           </div>
         </NavLink>
