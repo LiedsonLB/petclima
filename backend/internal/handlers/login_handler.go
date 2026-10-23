@@ -156,7 +156,7 @@ func (h *LoginHandler) verifyVerificationToken(email, token string) (bool, error
 
 // logoURL aponta para o ícone do PET-Saúde Clima servido pelo frontend.
 func (h *LoginHandler) logoURL() string {
-	return h.frontendURL + "/logo-pet.png"
+	return h.frontendURL + "/petsaudeclima_icon.png"
 }
 
 // linkComQuery monta um link do frontend com e-mail/token devidamente

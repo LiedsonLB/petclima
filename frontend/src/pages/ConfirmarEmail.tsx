@@ -67,7 +67,7 @@ export default function ConfirmarEmail() {
           {/* Logo */}
           <div className="flex items-center justify-center">
             <img
-              src="/logo-pet.png"
+              src="/petsaudeclima_icon.png"
               alt="PET-Saúde Clima — Territórios do Piauí"
               className="h-24 w-auto"
             />

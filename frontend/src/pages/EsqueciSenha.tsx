@@ -50,7 +50,7 @@ export default function EsqueciSenha() {
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1 mb-3">
                   <img
-                    src="/logo-pet.png"
+                    src="/petsaudeclima_icon.png"
                     alt="PET-Saúde Clima — Territórios do Piauí"
                     className="h-24 w-auto"
                   />
